@@ -48,7 +48,13 @@ impl Github {
         let mut refreshed = false;
         loop {
             let token = self.token(refreshed).await?;
-            let res = self.http.post(ENDPOINT).bearer_auth(token).json(&body).send().await?;
+            let res = self
+                .http
+                .post(ENDPOINT)
+                .bearer_auth(token)
+                .json(&body)
+                .send()
+                .await?;
             let status = res.status();
             if status == reqwest::StatusCode::UNAUTHORIZED && !refreshed {
                 refreshed = true;
@@ -56,10 +62,19 @@ impl Github {
             }
             let text = res.text().await?;
             if !status.is_success() {
-                bail!("GitHub {status}: {}", text.chars().take(300).collect::<String>());
+                bail!(
+                    "GitHub {status}: {}",
+                    text.chars().take(300).collect::<String>()
+                );
             }
-            let res: Response<T> = serde_json::from_str(&text).context("unexpected GitHub response")?;
-            let errors = res.errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("; ");
+            let res: Response<T> =
+                serde_json::from_str(&text).context("unexpected GitHub response")?;
+            let errors = res
+                .errors
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
             return match res.data {
                 Some(data) => {
                     // Partial data is common (e.g. SAML-protected orgs); keep what we got.

@@ -40,7 +40,7 @@ query = "is:open review-requested:@me"
 name = "mine"
 query = "is:open author:@me"
 
-[filters]                      # local, applied after fetch, global to all rules
+[filters] # local, applied after fetch, global to all rules
 exclude_authors = ["dependabot[bot]", "renovate[bot]"]
 exclude_repos = ["acme/legacy"]
 hide_drafts = false
@@ -88,13 +88,13 @@ GitHub's own `bodyHTML` means no markdown renderer: output matches GitHub. Sanit
 
 ### SQLite (`~/Library/Application Support/ghreviewer/cache.db`)
 
-| table | columns |
-|---|---|
-| `repos` | id, owner, name, is_private, pushed_at |
-| `prs` | id, repo_id, number, title, author, is_draft, state, updated_at, last_others_activity_at, list_json |
-| `pr_rules` | pr_id, rule_name |
-| `pr_detail` | pr_id, detail_json, fetched_at |
-| `pr_views` | pr_id, last_viewed_at, forced_unread |
+| table       | columns                                                                                             |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `repos`     | id, owner, name, is_private, pushed_at                                                              |
+| `prs`       | id, repo_id, number, title, author, is_draft, state, updated_at, last_others_activity_at, list_json |
+| `pr_rules`  | pr_id, rule_name                                                                                    |
+| `pr_detail` | pr_id, detail_json, fetched_at                                                                      |
+| `pr_views`  | pr_id, last_viewed_at, forced_unread                                                                |
 
 **Unread** means `last_others_activity_at > last_viewed_at` OR `forced_unread`. Opening a PR sets `last_viewed_at`; `u` toggles `forced_unread`.
 
@@ -118,19 +118,19 @@ Three columns separated by 1px lines, no rounding, no shadows, everything monosp
 
 ### Keys (fixed for MVP)
 
-| key | action |
-|---|---|
-| `j` / `k` | next / prev item in focused column |
-| `h` / `l`, `Tab` / `S-Tab` | move focus between columns |
-| `gg` / `G` | top / bottom |
-| `Ctrl-d` / `Ctrl-u` | scroll PR pane |
-| `/` | filter focused list |
-| `o` | open PR in browser |
-| `r` | refresh now |
-| `u` | toggle unread |
-| `?` | help overlay |
-| `:` | command palette (refresh, settings, theme, open config file) |
-| `Esc` | close overlay / clear filter |
+| key                        | action                                                       |
+| -------------------------- | ------------------------------------------------------------ |
+| `j` / `k`                  | next / prev item in focused column                           |
+| `h` / `l`, `Tab` / `S-Tab` | move focus between columns                                   |
+| `gg` / `G`                 | top / bottom                                                 |
+| `Ctrl-d` / `Ctrl-u`        | scroll PR pane                                               |
+| `/`                        | filter focused list                                          |
+| `o`                        | open PR in browser                                           |
+| `r`                        | refresh now                                                  |
+| `u`                        | toggle unread                                                |
+| `?`                        | help overlay                                                 |
+| `:`                        | command palette (refresh, settings, theme, open config file) |
+| `Esc`                      | close overlay / clear filter                                 |
 
 One global keydown handler drives a small focus state (`focusedColumn`, a pending-key buffer for `gg`). It ignores keys while an input has focus.
 
@@ -144,6 +144,14 @@ One global keydown handler drives a small focus state (`focusedColumn`, a pendin
 5. **Unread**: activity-by-others tracking, mark viewed, `u`.
 6. **Settings & repo flags**: settings view writing TOML, pin/hide.
 7. **Polish**: `?` help, `:` palette, status bar, error states (gh missing or not logged in).
+
+## Status
+
+All milestones are in; checked against real GitHub data.
+
+- Beyond the plan: after each poll, the poller caches details for PRs that are new or changed (4 at a time), so opening a PR is usually instant.
+- Repo/org counts and scope filtering are computed on the frontend (`src/model.ts`) from the inbox list. Local filters and unread are computed in Rust (`db.rs`).
+- Live GraphQL check: `cd src-tauri && cargo test -- --ignored live --nocapture`.
 
 ## Out of scope (MVP)
 

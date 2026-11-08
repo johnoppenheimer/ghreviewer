@@ -202,18 +202,34 @@ struct GitActor {
 impl Activity {
     fn who_when(&self) -> (Option<&str>, Option<&str>) {
         if let Some(c) = &self.commit {
-            let who = c.author.as_ref().and_then(|a| a.user.as_ref()).map(|u| u.login.as_str());
+            let who = c
+                .author
+                .as_ref()
+                .and_then(|a| a.user.as_ref())
+                .map(|u| u.login.as_str());
             return (who, Some(&c.committed_date));
         }
-        let who = self.author.as_ref().or(self.actor.as_ref()).map(|l| l.login.as_str());
+        let who = self
+            .author
+            .as_ref()
+            .or(self.actor.as_ref())
+            .map(|l| l.login.as_str());
         (who, self.created_at.as_deref())
     }
 }
 
 /// Latest activity not done by `viewer`. Unknown actors (deleted users, unlinked commits) count as others.
 fn last_others_activity(pr: &SearchPr, viewer: &str) -> Option<String> {
-    let created = (pr.author.as_ref().map(|a| a.login.as_str()), Some(pr.created_at.as_str()));
-    let items = pr.timeline_items.nodes.iter().flatten().map(Activity::who_when);
+    let created = (
+        pr.author.as_ref().map(|a| a.login.as_str()),
+        Some(pr.created_at.as_str()),
+    );
+    let items = pr
+        .timeline_items
+        .nodes
+        .iter()
+        .flatten()
+        .map(Activity::who_when);
     std::iter::once(created)
         .chain(items)
         .filter(|(who, _)| *who != Some(viewer))
@@ -260,7 +276,11 @@ fn merge(acc: &mut HashMap<String, PrSummary>, pr: PrSummary, rule: &str) {
 }
 
 /// Runs every rule's search and returns the deduped union, plus the remaining rate limit.
-pub async fn fetch_inbox(gh: &Github, rules: &[Rule], viewer: &str) -> Result<(Vec<PrSummary>, Option<u64>)> {
+pub async fn fetch_inbox(
+    gh: &Github,
+    rules: &[Rule],
+    viewer: &str,
+) -> Result<(Vec<PrSummary>, Option<u64>)> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Data {
@@ -364,7 +384,9 @@ pub async fn fetch_detail(gh: &Github, id: &str) -> Result<Value> {
             break;
         }
         let after = info["endCursor"].clone();
-        let mut next: Value = gh.query(&query, json!({ "id": id, "after": after })).await?;
+        let mut next: Value = gh
+            .query(&query, json!({ "id": id, "after": after }))
+            .await?;
         let page = next["node"]["timelineItems"].take();
         if let (Some(nodes), Some(more)) = (
             pr["timelineItems"]["nodes"].as_array_mut(),
@@ -404,13 +426,19 @@ mod tests {
                 {},
             ]),
         );
-        assert_eq!(last_others_activity(&p, "me").as_deref(), Some("2026-01-03T00:00:00Z"));
+        assert_eq!(
+            last_others_activity(&p, "me").as_deref(),
+            Some("2026-01-03T00:00:00Z")
+        );
     }
 
     #[test]
     fn creation_by_others_counts() {
         let p = pr("bob", "2026-01-01T00:00:00Z", json!([]));
-        assert_eq!(last_others_activity(&p, "me").as_deref(), Some("2026-01-01T00:00:00Z"));
+        assert_eq!(
+            last_others_activity(&p, "me").as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
         let mine = pr("me", "2026-01-01T00:00:00Z", json!([]));
         assert_eq!(last_others_activity(&mine, "me"), None);
     }
@@ -422,13 +450,24 @@ mod tests {
         let gh = Github::new();
         let me = viewer(&gh).await.unwrap();
         let repos = fetch_repos(&gh).await.unwrap();
-        let rules = [Rule { name: "any".into(), query: format!("involves:{me}") }];
+        let rules = [Rule {
+            name: "any".into(),
+            query: format!("involves:{me}"),
+        }];
         let (prs, rate) = fetch_inbox(&gh, &rules, &me).await.unwrap();
-        println!("viewer={me} repos={} prs={} rate={rate:?}", repos.len(), prs.len());
+        println!(
+            "viewer={me} repos={} prs={} rate={rate:?}",
+            repos.len(),
+            prs.len()
+        );
         if let Some(pr) = prs.first() {
             let d = fetch_detail(&gh, &pr.id).await.unwrap();
             assert_eq!(d["id"], json!(pr.id));
-            println!("{} timeline={}", pr.url, d["timelineItems"]["nodes"].as_array().unwrap().len());
+            println!(
+                "{} timeline={}",
+                pr.url,
+                d["timelineItems"]["nodes"].as_array().unwrap().len()
+            );
         }
     }
 

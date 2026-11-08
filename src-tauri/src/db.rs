@@ -62,7 +62,10 @@ impl Db {
                 params![pr.id, serde_json::to_string(pr)?],
             )?;
         }
-        tx.execute("DELETE FROM pr_detail WHERE id NOT IN (SELECT id FROM prs)", [])?;
+        tx.execute(
+            "DELETE FROM pr_detail WHERE id NOT IN (SELECT id FROM prs)",
+            [],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -83,7 +86,11 @@ impl Db {
                 continue;
             }
             let (seen, forced) = views.get(&pr.id).cloned().unwrap_or_default();
-            pr.unread = is_unread(pr.last_others_activity_at.as_deref(), seen.as_deref(), forced);
+            pr.unread = is_unread(
+                pr.last_others_activity_at.as_deref(),
+                seen.as_deref(),
+                forced,
+            );
             prs.push(pr);
         }
         prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -93,7 +100,9 @@ impl Db {
     pub fn detail(&self, id: &str) -> Result<Option<Value>> {
         let json: Option<String> = self
             .conn()
-            .query_row("SELECT json FROM pr_detail WHERE id = ?1", [id], |r| r.get(0))
+            .query_row("SELECT json FROM pr_detail WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
             .optional()?;
         Ok(json.map(|j| serde_json::from_str(&j)).transpose()?)
     }
@@ -162,7 +171,14 @@ fn glob(pattern: &str, text: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn pr(id: &str, author: &str, repo: &str, draft: bool, last: Option<&str>, updated: &str) -> PrSummary {
+    fn pr(
+        id: &str,
+        author: &str,
+        repo: &str,
+        draft: bool,
+        last: Option<&str>,
+        updated: &str,
+    ) -> PrSummary {
         PrSummary {
             id: id.into(),
             number: 1,
@@ -196,8 +212,16 @@ mod tests {
 
     #[test]
     fn unread_rules() {
-        assert!(is_unread(Some("2026-01-02T00:00:00Z"), Some("2026-01-01T00:00:00Z"), false));
-        assert!(!is_unread(Some("2026-01-01T00:00:00Z"), Some("2026-01-01T00:00:00Z"), false));
+        assert!(is_unread(
+            Some("2026-01-02T00:00:00Z"),
+            Some("2026-01-01T00:00:00Z"),
+            false
+        ));
+        assert!(!is_unread(
+            Some("2026-01-01T00:00:00Z"),
+            Some("2026-01-01T00:00:00Z"),
+            false
+        ));
         assert!(is_unread(Some("2026-01-01T00:00:00Z"), None, false));
         assert!(!is_unread(None, None, false));
         assert!(is_unread(None, None, true));
@@ -214,29 +238,50 @@ mod tests {
             pr("c", "bob", "o/r", true, None, t2),
         ])
         .unwrap();
-        let filters = Filters { exclude_authors: vec!["*[bot]".into()], exclude_repos: vec![], hide_drafts: false };
+        let filters = Filters {
+            exclude_authors: vec!["*[bot]".into()],
+            exclude_repos: vec![],
+            hide_drafts: false,
+        };
         let ids = |v: Vec<PrSummary>| v.into_iter().map(|p| (p.id, p.unread)).collect::<Vec<_>>();
-        assert_eq!(ids(db.inbox(&filters).unwrap()), vec![("c".into(), false), ("a".into(), true)]);
+        assert_eq!(
+            ids(db.inbox(&filters).unwrap()),
+            vec![("c".into(), false), ("a".into(), true)]
+        );
 
         db.set_unread("a", false).unwrap();
         assert!(!db.inbox(&filters).unwrap().iter().any(|p| p.unread));
         db.set_unread("a", true).unwrap();
-        assert!(db.inbox(&filters).unwrap().iter().find(|p| p.id == "a").unwrap().unread);
+        assert!(
+            db.inbox(&filters)
+                .unwrap()
+                .iter()
+                .find(|p| p.id == "a")
+                .unwrap()
+                .unread
+        );
 
         // New activity after being read flips it back to unread.
         db.set_unread("a", false).unwrap();
-        db.replace_prs(&[pr("a", "bob", "o/r", false, Some(t2), t2)]).unwrap();
+        db.replace_prs(&[pr("a", "bob", "o/r", false, Some(t2), t2)])
+            .unwrap();
         assert!(db.inbox(&filters).unwrap()[0].unread);
 
-        let drafts = Filters { hide_drafts: true, exclude_repos: vec!["o/*".into()], ..filters };
+        let drafts = Filters {
+            hide_drafts: true,
+            exclude_repos: vec!["o/*".into()],
+            ..filters
+        };
         assert!(db.inbox(&drafts).unwrap().is_empty());
     }
 
     #[test]
     fn details_pruned_with_inbox() {
         let db = Db::open(Path::new(":memory:")).unwrap();
-        db.replace_prs(&[pr("a", "bob", "o/r", false, None, "x")]).unwrap();
-        db.put_detail("a", &serde_json::json!({ "id": "a" })).unwrap();
+        db.replace_prs(&[pr("a", "bob", "o/r", false, None, "x")])
+            .unwrap();
+        db.put_detail("a", &serde_json::json!({ "id": "a" }))
+            .unwrap();
         assert!(db.detail("a").unwrap().is_some());
         db.replace_prs(&[]).unwrap();
         assert!(db.detail("a").unwrap().is_none());

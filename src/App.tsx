@@ -1,51 +1,286 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type PrDetail, type PrSummary, type Repo, api } from "./api";
+import { type Action, createKeymap } from "./keys";
+import { Inbox, Sidebar } from "./Lists";
+import { inScope, matchesFilter, relTime, sidebarItems, step } from "./model";
+import { type Command, Help, Palette, Settings } from "./Overlays";
+import { PrView } from "./PrView";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+const NO_REPOS: Repo[] = [];
+const NO_PRS: PrSummary[] = [];
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+function useNow(ms: number) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
 }
 
-export default App;
+export default function App() {
+  const qc = useQueryClient();
+  const now = useNow(30_000);
+  const status = useQuery({ queryKey: ["status"], queryFn: api.status }).data;
+  const config = useQuery({ queryKey: ["config"], queryFn: api.config }).data;
+  const repos = useQuery({ queryKey: ["repos"], queryFn: api.repos }).data ?? NO_REPOS;
+  const inbox = useQuery({ queryKey: ["inbox"], queryFn: api.inbox }).data ?? NO_PRS;
+
+  const [focus, setFocus] = useState(1);
+  const [sideKey, setSideKey] = useState("all");
+  const [prId, setPrId] = useState<string | null>(null);
+  const [filters, setFilters] = useState(["", ""]);
+  const [filterOpen, setFilterOpen] = useState<number | null>(null);
+  const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings">(null);
+  const [collapsed, setCollapsed] = useState(new Set<string>());
+  const [showHidden, setShowHidden] = useState(false);
+  const [uiError, setUiError] = useState<string | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const keymap = useMemo(createKeymap, []);
+
+  const fire = (p: Promise<unknown>) => p.catch((e) => setUiError(String(e)));
+  const setFilter = (col: number, value: string) =>
+    setFilters((f) => f.map((v, i) => (i === col ? value : v)));
+
+  useEffect(() => {
+    const unlisten = [
+      listen("changed", () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "pr" })),
+      listen<{ id: string; detail: PrDetail }>("pr-updated", (e) =>
+        qc.setQueriesData({ queryKey: ["pr", e.payload.id] }, e.payload.detail),
+      ),
+    ];
+    return () => unlisten.forEach((p) => p.then((f) => f()));
+  }, [qc]);
+
+  useEffect(() => {
+    if (!config) return;
+    const style = document.documentElement.style;
+    for (const theme of Object.values(config.themes))
+      for (const k of Object.keys(theme)) style.removeProperty(`--${k}`);
+    for (const [k, v] of Object.entries(config.themes[config.theme] ?? {}))
+      style.setProperty(`--${k}`, v);
+  }, [config]);
+
+  const items = useMemo(
+    () =>
+      sidebarItems({
+        repos: repos.map((r) => r.nameWithOwner),
+        inbox,
+        pinned: config?.repos.pinned ?? [],
+        hidden: config?.repos.hidden ?? [],
+        collapsed,
+        showHidden,
+        filter: filters[0],
+      }),
+    [repos, inbox, config, collapsed, showHidden, filters],
+  );
+  const sideIdx = Math.max(
+    0,
+    items.findIndex((i) => i.key === sideKey),
+  );
+  const side = items[sideIdx];
+  const prs = useMemo(
+    () => inbox.filter((pr) => inScope(pr, side.key) && matchesFilter(pr, filters[1])),
+    [inbox, side.key, filters],
+  );
+  const prIdx = Math.max(
+    0,
+    prs.findIndex((p) => p.id === prId),
+  );
+  const selected = prs[prIdx] ?? null;
+
+  // Keyed by what the inbox knows changed, so a PR is only re-fetched when it moved.
+  const detail = useQuery({
+    queryKey: ["pr", selected?.id, selected?.updatedAt, selected?.checks],
+    queryFn: () => api.pr(selected!.id),
+    enabled: !!selected,
+  });
+
+  useEffect(() => {
+    if (selected?.unread) fire(api.setUnread(selected.id, false));
+    // Only on opening a PR or on new activity while it's open, so `u` sticks.
+  }, [selected?.id, selected?.lastOthersActivityAt]);
+
+  useEffect(() => paneRef.current?.scrollTo({ top: 0 }), [selected?.id]);
+
+  const move = (delta: number) => {
+    if (focus === 0) {
+      const i = step(items.length, sideIdx, delta);
+      if (i >= 0) setSideKey(items[i].key);
+    } else if (focus === 1) {
+      const i = step(prs.length, prIdx, delta);
+      if (i >= 0) setPrId(prs[i].id);
+    } else if (Number.isFinite(delta)) {
+      paneRef.current?.scrollBy({ top: delta * 60 });
+    } else {
+      paneRef.current?.scrollTo({ top: delta > 0 ? paneRef.current.scrollHeight : 0 });
+    }
+  };
+
+  const toggleUnread = () => selected && fire(api.setUnread(selected.id, !selected.unread));
+  const openSelected = () => selected && fire(openUrl(selected.url));
+
+  const run = (action: Action) => {
+    const pane = paneRef.current;
+    switch (action) {
+      case "down":
+        return move(1);
+      case "up":
+        return move(-1);
+      case "top":
+        return move(-Infinity);
+      case "bottom":
+        return move(Infinity);
+      case "left":
+        return setFocus((f) => Math.max(0, f - 1));
+      case "right":
+      case "enter":
+        return setFocus((f) => Math.min(2, f + 1));
+      case "pageDown":
+      case "pageUp":
+        return pane?.scrollBy({ top: ((action === "pageDown" ? 1 : -1) * pane.clientHeight) / 2 });
+      case "filter":
+        return focus < 2 && setFilterOpen(focus);
+      case "escape":
+        setUiError(null);
+        return focus < 2 && setFilter(focus, "");
+      case "open":
+        return openSelected();
+      case "refresh":
+        return fire(api.refresh());
+      case "toggleUnread":
+        return toggleUnread();
+      case "help":
+      case "palette":
+        return setOverlay(action);
+      case "pin":
+      case "hide":
+        if (focus !== 0 || side.kind !== "repo") return;
+        return fire(
+          action === "pin"
+            ? api.setRepoFlag(side.repo, "pinned", !side.pinned)
+            : api.setRepoFlag(side.repo, "hidden", !side.hidden),
+        );
+      case "toggleHidden":
+        return setShowHidden((v) => !v);
+      case "collapse":
+        if (focus !== 0 || side.kind !== "org") return;
+        return setCollapsed((c) => {
+          const next = new Set(c);
+          if (!next.delete(side.org)) next.add(side.org);
+          return next;
+        });
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (overlay) {
+        if (e.key === "Escape" || overlay === "help") {
+          e.preventDefault();
+          setOverlay(null);
+        }
+        return;
+      }
+      if ((e.target as HTMLElement).closest("input, textarea, select")) return;
+      const action = keymap(e);
+      if (!action) return;
+      e.preventDefault();
+      run(action);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const commands: Command[] = [
+    { label: "refresh", run: () => fire(api.refresh()) },
+    { label: "settings", run: () => setOverlay("settings") },
+    { label: "open config file", run: () => fire(api.openConfig()) },
+    { label: "open PR in browser", run: openSelected },
+    { label: "toggle unread", run: toggleUnread },
+    {
+      label: showHidden ? "hide hidden repos" : "show hidden repos",
+      run: () => setShowHidden((v) => !v),
+    },
+    ...Object.keys(config?.themes ?? {}).map((theme) => ({
+      label: `theme ${theme}`,
+      run: () => config && fire(api.saveSettings({ ...config, theme })),
+    })),
+    { label: "help", run: () => setOverlay("help") },
+  ];
+
+  const scopeTitle = side.kind === "org" ? side.org : side.kind === "repo" ? side.repo : "Inbox";
+  let empty = "Nothing here.";
+  if (status?.error && !inbox.length) empty = status.error;
+  else if (!config?.rules.length) empty = "No rules yet. Press : then settings.";
+  else if (status?.syncing && !inbox.length) empty = "Syncing…";
+
+  const error = uiError ?? status?.configError ?? status?.error;
+  const synced = status?.lastSyncMs ? relTime(status.lastSyncMs, now) : null;
+
+  return (
+    <div className="app">
+      <Sidebar
+        items={items}
+        selected={side.key}
+        focused={focus === 0}
+        showHidden={showHidden}
+        filter={filters[0]}
+        filterOpen={filterOpen === 0}
+        onFilter={(v) => setFilter(0, v)}
+        onFilterDone={() => setFilterOpen(null)}
+        onSelect={(key) => {
+          setFocus(0);
+          setSideKey(key);
+        }}
+      />
+      <Inbox
+        title={scopeTitle}
+        prs={prs}
+        selected={selected?.id ?? null}
+        focused={focus === 1}
+        empty={empty}
+        now={now}
+        filter={filters[1]}
+        filterOpen={filterOpen === 1}
+        onFilter={(v) => setFilter(1, v)}
+        onFilterDone={() => setFilterOpen(null)}
+        onSelect={(id) => {
+          setFocus(1);
+          setPrId(id);
+        }}
+      />
+      <PrView
+        summary={selected}
+        detail={detail.data}
+        error={detail.error ? String(detail.error) : null}
+        focused={focus === 2}
+        now={now}
+        paneRef={paneRef}
+        onFocus={() => setFocus(2)}
+        onLink={(url) => fire(openUrl(url))}
+      />
+      <div className="status">
+        <span>{status?.viewer ? `@${status.viewer}` : "…"}</span>
+        <span>
+          {status?.syncing
+            ? "syncing…"
+            : synced
+              ? `synced ${synced === "now" ? "just now" : `${synced} ago`}`
+              : "not synced"}
+        </span>
+        {status?.rateRemaining != null && <span>api {status.rateRemaining}</span>}
+        {error && <span className="fail">{error}</span>}
+        <span className="grow">? help · : commands</span>
+      </div>
+      {overlay === "help" && <Help onClose={() => setOverlay(null)} />}
+      {overlay === "palette" && <Palette commands={commands} onClose={() => setOverlay(null)} />}
+      {overlay === "settings" && config && (
+        <Settings config={config} onClose={() => setOverlay(null)} />
+      )}
+    </div>
+  );
+}

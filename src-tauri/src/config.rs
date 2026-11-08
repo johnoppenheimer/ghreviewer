@@ -212,8 +212,15 @@ mod tests {
         let s = Settings {
             poll_interval_secs: 60,
             theme: "light".into(),
-            rules: vec![Rule { name: "team".into(), query: "is:open team-review-requested:acme/x".into() }],
-            filters: Filters { exclude_authors: vec![], exclude_repos: vec!["a/b".into()], hide_drafts: true },
+            rules: vec![Rule {
+                name: "team".into(),
+                query: "is:open team-review-requested:acme/x".into(),
+            }],
+            filters: Filters {
+                exclude_authors: vec![],
+                exclude_repos: vec!["a/b".into()],
+                hide_drafts: true,
+            },
         };
         let out = apply_settings(STARTER, &s).unwrap();
         assert!(out.contains("# Each rule is a GitHub search query"));
@@ -229,7 +236,16 @@ mod tests {
         let s = Settings {
             poll_interval_secs: 120,
             theme: "dark".into(),
-            rules: vec![Rule { name: "a".into(), query: "b".into() }, Rule { name: "c".into(), query: "d".into() }],
+            rules: vec![
+                Rule {
+                    name: "a".into(),
+                    query: "b".into(),
+                },
+                Rule {
+                    name: "c".into(),
+                    query: "d".into(),
+                },
+            ],
             filters: Filters::default(),
         };
         let c: Config = toml::from_str(&apply_settings("", &s).unwrap()).unwrap();
@@ -243,8 +259,18 @@ mod tests {
         let c: Config = toml::from_str(&on).unwrap();
         assert_eq!(c.repos.pinned, vec!["o/r"]);
         let off = set_repo_flag(&on, "o/r", "pinned", false).unwrap();
-        assert!(toml::from_str::<Config>(&off).unwrap().repos.pinned.is_empty());
-        assert!(set_repo_flag("", "o/r", "hidden", true).unwrap().contains("o/r"));
+        assert!(
+            toml::from_str::<Config>(&off)
+                .unwrap()
+                .repos
+                .pinned
+                .is_empty()
+        );
+        assert!(
+            set_repo_flag("", "o/r", "hidden", true)
+                .unwrap()
+                .contains("o/r")
+        );
         assert!(set_repo_flag(STARTER, "o/r", "nope", true).is_err());
     }
 }

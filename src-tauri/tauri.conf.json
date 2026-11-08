@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "ghreviewer",
-        "width": 800,
-        "height": 600
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 500
       }
     ],
     "security": {
@@ -23,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

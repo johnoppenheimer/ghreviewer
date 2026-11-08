@@ -80,7 +80,10 @@ fn reload_config(app: &AppHandle, st: &AppState) {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 async fn sync_once(st: &AppState, with_repos: bool) -> anyhow::Result<Option<u64>> {
@@ -99,11 +102,39 @@ async fn sync_once(st: &AppState, with_repos: bool) -> anyhow::Result<Option<u64
     Ok(remaining)
 }
 
+/// Caches details of new or changed PRs so opening them is instant.
+async fn prefetch_details(st: &Arc<AppState>) {
+    let filters = st.cfg.read().unwrap().filters.clone();
+    let Ok(prs) = st.db.inbox(&filters) else {
+        return;
+    };
+    let stale: Vec<String> = prs
+        .into_iter()
+        .filter(|pr| {
+            let cached = st.db.detail(&pr.id).ok().flatten();
+            cached.is_none_or(|d| d["updatedAt"] != json!(pr.updated_at))
+        })
+        .map(|pr| pr.id)
+        .collect();
+    for chunk in stale.chunks(4) {
+        let mut set = tokio::task::JoinSet::new();
+        for id in chunk {
+            let (st, id) = (st.clone(), id.clone());
+            set.spawn(async move {
+                if let Ok(detail) = sync::fetch_detail(&st.gh, &id).await {
+                    let _ = st.db.put_detail(&id, &detail);
+                }
+            });
+        }
+        set.join_all().await;
+    }
+}
+
 async fn poller(app: AppHandle, st: Arc<AppState>) {
     let mut repos_at: Option<Instant> = None;
     loop {
-        let with_repos =
-            st.force_repos.swap(false, Ordering::Relaxed) || repos_at.is_none_or(|t| t.elapsed() > REPOS_EVERY);
+        let with_repos = st.force_repos.swap(false, Ordering::Relaxed)
+            || repos_at.is_none_or(|t| t.elapsed() > REPOS_EVERY);
         update_status(&app, &st, |s| s.syncing = true);
         let res = sync_once(&st, with_repos).await;
         if res.is_ok() && with_repos {
@@ -120,6 +151,7 @@ async fn poller(app: AppHandle, st: Arc<AppState>) {
                 Err(e) => s.error = Some(err(e)),
             }
         });
+        prefetch_details(&st).await;
         let secs = st.cfg.read().unwrap().poll_interval_secs.max(30);
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(secs)) => {}
@@ -180,7 +212,11 @@ fn refresh(st: State<'_, Arc<AppState>>) {
     st.wake.notify_one();
 }
 
-fn edit_config(app: &AppHandle, st: &AppState, f: impl FnOnce(&str) -> anyhow::Result<String>) -> Res<()> {
+fn edit_config(
+    app: &AppHandle,
+    st: &AppState,
+    f: impl FnOnce(&str) -> anyhow::Result<String>,
+) -> Res<()> {
     let text = std::fs::read_to_string(&st.cfg_path).map_err(err)?;
     std::fs::write(&st.cfg_path, f(&text).map_err(err)?).map_err(err)?;
     reload_config(app, st);
@@ -193,8 +229,16 @@ fn save_settings(app: AppHandle, st: State<'_, Arc<AppState>>, settings: Setting
 }
 
 #[tauri::command]
-fn set_repo_flag(app: AppHandle, st: State<'_, Arc<AppState>>, repo: String, flag: String, on: bool) -> Res<()> {
-    edit_config(&app, &st, |text| config::set_repo_flag(text, &repo, &flag, on))
+fn set_repo_flag(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    repo: String,
+    flag: String,
+    on: bool,
+) -> Res<()> {
+    edit_config(&app, &st, |text| {
+        config::set_repo_flag(text, &repo, &flag, on)
+    })
 }
 
 #[tauri::command]
@@ -223,7 +267,10 @@ pub fn run() {
                 cfg: RwLock::new(cfg),
                 db: Db::open(&data_dir.join("cache.db"))?,
                 gh: Github::new(),
-                status: Mutex::new(Status { config_error, ..Default::default() }),
+                status: Mutex::new(Status {
+                    config_error,
+                    ..Default::default()
+                }),
                 wake: Notify::new(),
                 force_repos: AtomicBool::new(false),
                 cfg_path: cfg_path.clone(),
@@ -233,12 +280,16 @@ pub fn run() {
             // Watch the directory: editors often save by replacing the file.
             let handle = app.handle().clone();
             let watched = st.clone();
-            let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                if res.is_ok_and(|e| e.paths.iter().any(|p| p.ends_with("config.toml"))) {
-                    reload_config(&handle, &watched);
-                }
-            })?;
-            watcher.watch(cfg_path.parent().context("bad config path")?, RecursiveMode::NonRecursive)?;
+            let mut watcher =
+                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    if res.is_ok_and(|e| e.paths.iter().any(|p| p.ends_with("config.toml"))) {
+                        reload_config(&handle, &watched);
+                    }
+                })?;
+            watcher.watch(
+                cfg_path.parent().context("bad config path")?,
+                RecursiveMode::NonRecursive,
+            )?;
             app.manage(Mutex::new(watcher));
 
             tauri::async_runtime::spawn(poller(app.handle().clone(), st));
