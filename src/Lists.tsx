@@ -144,7 +144,7 @@ function StackLines({ g }: { g: Graph }) {
       ))}
       {g.depth > 0 && <i className="elbow" style={at(g.depth - 1)} />}
       {g.depth > 0 && !g.last && <i className="sibling" style={at(g.depth - 1)} />}
-      {g.down && <i className="down" style={at(g.depth)} />}
+      {g.down && <i className={`down ${g.depth > 0 ? "joined" : ""}`} style={at(g.depth)} />}
     </div>
   );
 }

@@ -353,7 +353,6 @@ a:hover {
   /* Up to the child's text, past its unread-dot column (1ch + 8px gap). */
   width: calc(var(--indent) + 0.5ch + 4px);
   border-bottom: 1px solid var(--dim);
-  border-bottom-left-radius: 4px;
 }
 .stack-lines .sibling {
   top: var(--node-y);
@@ -362,6 +361,10 @@ a:hover {
 .stack-lines .down {
   top: calc(var(--node-y) + 0.5lh);
   bottom: 0;
+}
+/* A child's line leaves from its incoming L, so a chain reads as one line. */
+.stack-lines .down.joined {
+  top: var(--node-y);
 }
 /* Stacked under a PR that isn't in the inbox itself. */
 .pr-row.stack-parent {
