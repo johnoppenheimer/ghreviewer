@@ -293,17 +293,32 @@ export function PrView(props: {
   headRight: ReactNode;
   /** Header highlight: "busy" while creating a worktree, "done" right after. */
   headState: "" | "busy" | "done";
+  /** Tab labels (the PR, then prompts); no bar when there's only the PR. */
+  tabs: ReactNode[];
+  tab: number;
+  /** Content of a prompt tab, shown instead of the PR. */
+  tabBody: ReactNode;
+  onTab: (i: number) => void;
   onFocus: () => void;
   onLink: (url: string) => void;
 }) {
-  const { summary, detail, error, focused, now, paneRef, headRight, headState, onFocus, onLink } =
-    props;
+  const { summary, detail, error, focused, now, paneRef, headRight, headState } = props;
+  const { tabs, tab, tabBody, onTab, onFocus, onLink } = props;
   return (
     <div className={`col ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
       <div className={`col-head ${headState}`} data-tauri-drag-region>
         <span className="grow">{summary ? `${summary.repo}#${summary.number}` : "PR"}</span>
         {summary && !detail && !error ? <span>loading…</span> : headRight}
       </div>
+      {summary && tabs.length > 1 && (
+        <div className="tabs">
+          {tabs.map((label, i) => (
+            <button key={i} className={`tab ${i === tab ? "active" : ""}`} onClick={() => onTab(i)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div
         className="scroll"
         ref={paneRef}
@@ -325,7 +340,7 @@ export function PrView(props: {
             <span className="dim">{summary.author}</span>
           </div>
         )}
-        {detail && <Detail key={detail.id} pr={detail} now={now} />}
+        {detail && (tabBody ?? <Detail key={detail.id} pr={detail} now={now} />)}
       </div>
     </div>
   );

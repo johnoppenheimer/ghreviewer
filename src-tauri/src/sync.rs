@@ -322,7 +322,7 @@ query($id: ID!, $after: String) {{
   node(id: $id) {{
     ... on PullRequest {{
       id number title url state isDraft createdAt updatedAt bodyHTML
-      baseRefName headRefName additions deletions changedFiles
+      baseRefName headRefName headRefOid additions deletions changedFiles
       mergeable mergeStateStatus reviewDecision
       author {{ login }}
       repository {{ nameWithOwner }}

@@ -165,7 +165,7 @@ a:hover {
     opacity: 0.6;
   }
 }
-.col-head .head-btn {
+.head-btn {
   pointer-events: auto;
   border: none;
   background: none;
@@ -174,8 +174,68 @@ a:hover {
   text-transform: none;
   letter-spacing: 0;
 }
-.col-head .head-btn:hover {
+.head-btn:hover {
   text-decoration: underline;
+}
+/* PR pane tabs: the PR itself, then one per configured prompt. */
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  border: none;
+  border-right: 1px solid var(--border);
+  background: none;
+  padding: 3px 12px;
+  color: var(--dim);
+}
+.tab.active {
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab-mark {
+  margin-left: 6px;
+}
+.tab-mark .pixel-spinner {
+  margin-right: 0;
+}
+.run-keys {
+  margin: 2px 0 14px;
+}
+.run-prompt,
+.run-error {
+  white-space: pre-wrap;
+  font: inherit;
+  background: var(--bg_alt);
+  padding: 8px 10px;
+  margin: 0 0 14px;
+}
+.run-file {
+  margin-bottom: 16px;
+}
+.run-file .item-head {
+  margin-bottom: 4px;
+}
+.run-file iframe {
+  display: block;
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--border);
+  /* Pages without their own background assume a white one. */
+  background: #fff;
+}
+.run-file img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+}
+.run-activity {
+  margin-top: 16px;
+}
+.run-activity div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Room for the traffic lights. */
 .col:first-child .col-head {

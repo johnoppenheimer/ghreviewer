@@ -1,4 +1,5 @@
 use crate::{
+    agent::Run,
     config::Filters,
     sync::{PrSummary, Repo},
 };
@@ -17,6 +18,12 @@ CREATE TABLE IF NOT EXISTS pr_views (
   id TEXT PRIMARY KEY,
   seen_activity_at TEXT,
   forced_unread INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS runs (
+  pr_id TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  json TEXT NOT NULL,
+  PRIMARY KEY (pr_id, prompt)
 );";
 
 impl Db {
@@ -137,6 +144,32 @@ impl Db {
              ON CONFLICT(id) DO UPDATE SET seen_activity_at = excluded.seen_activity_at, forced_unread = 0"
         };
         self.conn().execute(sql, [id])?;
+        Ok(())
+    }
+
+    /// Latest run of each prompt on a PR. Kept after the PR leaves the inbox.
+    pub fn runs(&self, pr_id: &str) -> Result<Vec<Run>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT json FROM runs WHERE pr_id = ?1")?;
+        let rows = stmt.query_map([pr_id], |r| r.get::<_, String>(0))?;
+        rows.map(|j| Ok(serde_json::from_str(&j?)?)).collect()
+    }
+
+    pub fn put_run(&self, run: &Run) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO runs (pr_id, prompt, json) VALUES (?1, ?2, ?3)",
+            params![run.pr_id, run.prompt, serde_json::to_string(run)?],
+        )?;
+        Ok(())
+    }
+
+    /// Runs still marked running were cut off by the app quitting.
+    pub fn interrupt_runs(&self) -> Result<()> {
+        self.conn().execute(
+            "UPDATE runs SET json = json_set(json, '$.status', 'interrupted')
+             WHERE json_extract(json, '$.status') = 'running'",
+            [],
+        )?;
         Ok(())
     }
 }
@@ -284,6 +317,37 @@ mod tests {
             ..filters
         };
         assert!(db.inbox(&drafts).unwrap().is_empty());
+    }
+
+    #[test]
+    fn runs_stored_and_interrupted() {
+        use crate::agent::RunStatus;
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let run = |prompt: &str, status| Run {
+            pr_id: "a".into(),
+            prompt: prompt.into(),
+            status,
+            ..Default::default()
+        };
+        db.put_run(&run("review", RunStatus::Running)).unwrap();
+        db.put_run(&run("diagram", RunStatus::Done)).unwrap();
+        db.put_run(&run("review", RunStatus::Running)).unwrap(); // replaces
+        db.interrupt_runs().unwrap();
+        let mut got: Vec<_> = db
+            .runs("a")
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.prompt, r.status))
+            .collect();
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            got,
+            [
+                ("diagram".into(), RunStatus::Done),
+                ("review".into(), RunStatus::Interrupted)
+            ]
+        );
+        assert!(db.runs("b").unwrap().is_empty());
     }
 
     #[test]

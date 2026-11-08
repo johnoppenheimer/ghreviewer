@@ -141,8 +141,21 @@ pub async fn create(roots: &[String], repo: &str, number: u64) -> Result<()> {
     Ok(())
 }
 
+/// Runs `args` through the login shell (for the user's PATH) without shell-parsing them.
+pub fn login_command(args: &[String]) -> Command {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut cmd = command(&shell);
+    cmd.args(["-lc", r#"exec "$@""#, "ghreviewer"]).args(args);
+    cmd
+}
+
+/// Quotes `s` as one word for a POSIX shell.
+pub fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// Replaces `{key}` placeholders in each argument of a command template.
-fn fill(template: &[String], vars: &[(&str, &str)]) -> Vec<String> {
+pub fn fill(template: &[String], vars: &[(&str, &str)]) -> Vec<String> {
     template
         .iter()
         .map(|arg| {
@@ -157,11 +170,8 @@ fn fill(template: &[String], vars: &[(&str, &str)]) -> Vec<String> {
 /// passing the arguments untouched so paths never get shell-parsed.
 pub async fn open_with(template: &[String], vars: &[(&str, &str)]) -> Result<()> {
     let args = fill(template, vars);
-    let program = args.first().context("`open_with` command is empty")?;
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let child = command(&shell)
-        .args(["-lc", r#"exec "$@""#, "ghreviewer"])
-        .args(&args)
+    let program = args.first().context("command is empty")?;
+    let child = login_command(&args)
         .kill_on_drop(false)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -230,6 +240,12 @@ mod tests {
         let err = open_with(&fail, &[]).await.unwrap_err().to_string();
         assert!(err.contains("nope"), "{err}");
         assert!(open_with(&[], &[]).await.is_err());
+        let quoted = [
+            "sh",
+            "-c",
+            &format!("test -e {}", shell_quote(marker.to_str().unwrap())),
+        ];
+        open_with(&quoted.map(String::from), &[]).await.unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

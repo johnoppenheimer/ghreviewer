@@ -118,25 +118,28 @@ Three columns separated by 1px lines, no rounding, no shadows, everything monosp
 
 ### Keys (fixed for MVP)
 
-| key                        | action                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------- |
-| `j` / `k`                  | next / prev item in focused column                                                     |
-| `h` / `l`, `Tab` / `S-Tab` | move focus between columns                                                             |
-| `gg` / `G`                 | top / bottom                                                                           |
-| `Ctrl-d` / `Ctrl-u`        | scroll PR pane                                                                         |
-| `/`                        | filter focused list                                                                    |
-| `o`                        | open PR in browser                                                                     |
-| `Cmd-r`                    | refresh now (works everywhere; footer pulses green while syncing)                      |
-| `u`                        | toggle unread                                                                          |
-| `w`                        | open the PR's worktree with the first `[[open_with]]`, or create it (`wt switch pr:N`) |
-| `W`                        | pick any `[[open_with]]` command for the worktree (palette)                            |
-| `p` / `x` (sidebar)        | pin / hide repo                                                                        |
-| `e` (sidebar)              | hide repos without PRs                                                                 |
-| `H`                        | show hidden repos                                                                      |
-| `Space` (sidebar)          | collapse org                                                                           |
-| `?`                        | help overlay                                                                           |
-| `:`                        | command palette (refresh, settings, theme, open config file)                           |
-| `Esc`                      | close overlay / clear filter                                                           |
+| key                        | action                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `j` / `k`                  | next / prev item in focused column                                                       |
+| `h` / `l`, `Tab` / `S-Tab` | move focus between columns                                                               |
+| `gg` / `G`                 | top / bottom                                                                             |
+| `Ctrl-d` / `Ctrl-u`        | scroll PR pane                                                                           |
+| `/`                        | filter focused list                                                                      |
+| `o`                        | open PR in browser                                                                       |
+| `Cmd-r`                    | refresh now (works everywhere; footer pulses green while syncing)                        |
+| `u`                        | toggle unread                                                                            |
+| `w`                        | open the PR's worktree with the first `[[open_with]]`, or create it (`wt switch pr:N`)   |
+| `W`                        | pick any `[[open_with]]` command for the worktree (palette)                              |
+| `[` / `]`                  | previous / next PR tab: the PR, then one per `[[prompts]]` entry                         |
+| `r`                        | run or re-run the tab's prompt headless (opencode / claude), creating the worktree first |
+| `c`                        | continue the tab's agent session in a new terminal (`terminal`)                          |
+| `p` / `x` (sidebar)        | pin / hide repo                                                                          |
+| `e` (sidebar)              | hide repos without PRs                                                                   |
+| `H`                        | show hidden repos                                                                        |
+| `Space` (sidebar)          | collapse org                                                                             |
+| `?`                        | help overlay                                                                             |
+| `:`                        | command palette (refresh, settings, theme, open config file)                             |
+| `Esc`                      | close overlay / clear filter                                                             |
 
 One global keydown handler drives a small focus state (`focusedColumn`, a pending-key buffer for `gg`). It ignores keys while an input has focus.
 

@@ -8,6 +8,7 @@ import { Inbox, Sidebar } from "./Lists";
 import { inScope, matchesFilter, relTime, sidebarItems, step } from "./model";
 import { type Command, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
+import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
 const NO_REPOS: Repo[] = [];
 const NO_PRS: PrSummary[] = [];
@@ -36,30 +37,6 @@ function useNow(ms: number) {
 }
 
 /** GitHub contribution-graph style blocks, 2 rows, fading from full green to bg across 1/3 of the window. */
-// Clockwise path around the edge of a 3x3 grid (index 4, the center, stays empty).
-const SPINNER_PATH = [0, 1, 2, 5, 8, 7, 6, 3];
-
-/** A lit pixel with a fading tail circling a 3x3 square. */
-function PixelSpinner() {
-  return (
-    <span className="pixel-spinner" aria-hidden>
-      {Array.from({ length: 9 }, (_, i) => {
-        const step = SPINNER_PATH.indexOf(i);
-        return (
-          <i
-            key={i}
-            style={
-              step < 0
-                ? { animation: "none", opacity: 0 }
-                : { animationDelay: `${(step - 8) * 0.1}s` }
-            }
-          />
-        );
-      })}
-    </span>
-  );
-}
-
 const SYNC_ROWS = 5;
 
 function SyncBlocks() {
@@ -125,6 +102,8 @@ export default function App() {
   // PR whose worktree was just created; its header flashes green for a moment.
   const [wtCreated, setWtCreated] = useState<string | null>(null);
   const [paletteQuery, setPaletteQuery] = useState("");
+  // PR pane tab: "" for the PR itself, else a prompt name.
+  const [tabName, setTabName] = usePersisted("prTab", "");
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -138,6 +117,7 @@ export default function App() {
       listen<{ id: string; detail: PrDetail }>("pr-updated", (e) =>
         qc.setQueriesData({ queryKey: ["pr", e.payload.id] }, e.payload.detail),
       ),
+      listen<string>("run-updated", (e) => qc.invalidateQueries({ queryKey: ["runs", e.payload] })),
     ];
     return () => unlisten.forEach((p) => p.then((f) => f()));
   }, [qc]);
@@ -270,6 +250,42 @@ export default function App() {
       </button>
     );
 
+  // Prompt tabs and their latest runs on the selected PR.
+  const prompts = config?.prompts ?? [];
+  const pr = detail.data?.id === selected?.id ? detail.data : undefined;
+  const runs = useQuery({
+    queryKey: ["runs", selected?.id],
+    queryFn: () => api.runs(selected!.id),
+    enabled: !!selected,
+  }).data;
+  const runOf = (name: string) => runs?.find((r) => r.prompt === name);
+  const tabNames = ["", ...prompts.map((p) => p.name)];
+  const tab = Math.max(0, tabNames.indexOf(tabName));
+  const tabPrompt = prompts[tab - 1];
+  const switchTab = (i: number) => {
+    setTabName(tabNames[(i + tabNames.length) % tabNames.length]);
+    paneRef.current?.scrollTo({ top: 0 });
+  };
+  const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
+  const tabs = tabNames.map((name) =>
+    name ? (
+      <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
+    ) : (
+      "PR"
+    ),
+  );
+  const tabBody = tabPrompt && selected && (
+    <RunView
+      prompt={tabPrompt}
+      run={runOf(tabPrompt.name)}
+      stale={isStale(runOf(tabPrompt.name), pr?.headRefOid)}
+      hasWorktree={!!wt?.path}
+      now={now}
+      onRun={() => runPrompt(tabPrompt.name)}
+      onOpenFile={(path) => fire(api.openPath(selected.id, path))}
+    />
+  );
+
   const run = (action: Action) => {
     const pane = paneRef.current;
     switch (action) {
@@ -321,6 +337,14 @@ export default function App() {
         return setShowHidden((v) => !v);
       case "worktree":
         return worktreeAction();
+      case "prevTab":
+        return switchTab(tab - 1);
+      case "nextTab":
+        return switchTab(tab + 1);
+      case "runPrompt":
+        return tabPrompt && runPrompt(tabPrompt.name);
+      case "continueRun":
+        return tabPrompt && selected && fire(api.continueRun(selected.id, tabPrompt.name));
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
       case "collapse":
@@ -371,6 +395,24 @@ export default function App() {
       ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
       : []),
     ...(canCreateWt ? [{ label: "create worktree", run: worktreeAction }] : []),
+    ...prompts.flatMap((p, i) => {
+      const run = runOf(p.name);
+      const show = () => switchTab(i + 1);
+      return [
+        ...(pr ? [{ label: `run ${p.name}`, run: () => (show(), runPrompt(p.name)) }] : []),
+        ...(run?.status === "running" && selected
+          ? [{ label: `cancel ${p.name}`, run: () => fire(api.cancelRun(selected.id, p.name)) }]
+          : []),
+        ...(run?.sessionId && selected
+          ? [
+              {
+                label: `continue ${p.name} in terminal`,
+                run: () => fire(api.continueRun(selected.id, p.name)),
+              },
+            ]
+          : []),
+      ];
+    }),
     {
       label: showHidden ? "hide hidden repos" : "show hidden repos",
       run: () => setShowHidden((v) => !v),
@@ -437,6 +479,10 @@ export default function App() {
         paneRef={paneRef}
         headRight={wtHead}
         headState={headState}
+        tabs={tabs}
+        tab={tab}
+        tabBody={tabBody}
+        onTab={switchTab}
         onFocus={() => setFocus(2)}
         onLink={(url) => fire(openUrl(url))}
       />

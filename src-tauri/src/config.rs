@@ -15,6 +15,12 @@ theme = "dark"
 # `origin` remote. Used to show a PR's worktree and create one with worktrunk (`w`).
 clone_roots = ["~/Documents/dev"]
 
+# Opens a new terminal running {command} (a shell command line), to continue a prompt's
+# agent session (`c`). Also gets {path} (the worktree) and {name} (its folder name).
+terminal = ["osascript", "-e", "on run argv", "-e", 'tell application "Terminal" to do script (item 1 of argv)', "-e", 'tell application "Terminal" to activate', "-e", "end run", "{command}"]
+# Rex instead (needs Rex's Remote Control on to switch to the new session):
+# terminal = ["sh", "-c", 'rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; id=$("$rex" new "$1" -c "$2" --json -- zsh -lc "$3" | jq -r .session_id) && "$rex" do session.select session_id="$id"', "sh", "{name}", "{path}", "{command}"]
+
 # Each rule is a GitHub search query (`is:pr` is added for you).
 # PRs matching any rule land in the inbox, tagged with the rule name.
 [[rules]]
@@ -48,6 +54,18 @@ command = ["open", "-a", "Cursor", "{path}"]
 # [[open_with]]
 # name = "Rex"
 # command = ["sh", "-c", 'rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; id=$("$rex" new "$1" -c "$2" --json | jq -r .session_id) && "$rex" do session.select session_id="$id"', "sh", "{name}", "{path}"]
+
+# Prompts a coding agent runs headless in a PR's worktree (created first if needed).
+# Each gets a tab in the PR pane: `[` / `]` switch tabs, `r` runs or re-runs the tab's prompt,
+# `c` continues its session in `terminal`. harness is "opencode" or "claude"; `args` are
+# extra flags for it (model, permissions…). In `prompt`, {url} {repo} {number} {branch} {base}
+# {path} (the worktree) and {out} (a folder kept per PR and prompt) are replaced.
+# .html/.svg/.png files in {out} (emptied on each run) or mentioned in the answer show in the tab.
+# [[prompts]]
+# name = "diagram"
+# harness = "claude"
+# prompt = "Use the diagram-design skill to draw what PR {url} changes and the author's intent. Save it as {out}/diagram.html and mention that path."
+# args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
 
 [themes.dark]
 bg = "#0b0b0b"
@@ -90,7 +108,27 @@ pub struct Config {
     pub filters: Filters,
     pub repos: RepoFlags,
     pub open_with: Vec<Opener>,
+    pub terminal: Vec<String>,
+    pub prompts: Vec<Prompt>,
     pub themes: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// A prompt a coding agent runs headless on a PR; its answer gets a tab in the PR pane.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Prompt {
+    pub name: String,
+    pub harness: Harness,
+    pub prompt: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Harness {
+    #[default]
+    Opencode,
+    Claude,
 }
 
 /// A command that opens a worktree folder, e.g. an editor or a terminal session.
@@ -110,6 +148,21 @@ impl Default for Config {
                 name: "Cursor".into(),
                 command: ["open", "-a", "Cursor", "{path}"].map(Into::into).to_vec(),
             }],
+            terminal: [
+                "osascript",
+                "-e",
+                "on run argv",
+                "-e",
+                r#"tell application "Terminal" to do script (item 1 of argv)"#,
+                "-e",
+                r#"tell application "Terminal" to activate"#,
+                "-e",
+                "end run",
+                "{command}",
+            ]
+            .map(Into::into)
+            .to_vec(),
+            prompts: vec![],
             rules: vec![],
             filters: Filters::default(),
             repos: RepoFlags::default(),
@@ -264,6 +317,21 @@ mod tests {
             .join("\n");
         let rex: Config = toml::from_str(&rex).unwrap();
         assert_eq!(rex.open_with[0].command[0], "sh");
+        assert_eq!(c.terminal, Config::default().terminal);
+        assert!(c.prompts.is_empty());
+        let uncomment = |start: &str, n| {
+            let text = STARTER
+                .lines()
+                .skip_while(|l| !l.starts_with(start))
+                .take(n)
+                .map(|l| l.trim_start_matches("# "))
+                .collect::<Vec<_>>()
+                .join("\n");
+            toml::from_str::<Config>(&text).unwrap()
+        };
+        let p = uncomment("# [[prompts]]", 5).prompts.remove(0);
+        assert_eq!((p.harness, p.args.len()), (Harness::Claude, 5));
+        assert_eq!(uncomment("# terminal", 1).terminal.len(), 7);
     }
 
     #[test]

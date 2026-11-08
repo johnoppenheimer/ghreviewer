@@ -1,21 +1,24 @@
+mod agent;
 mod config;
 mod db;
 mod github;
 mod local;
 mod sync;
 
+use agent::{Run, RunStatus};
 use anyhow::Context;
-use config::{Config, Settings};
+use config::{Config, Prompt, Settings};
 use db::Db;
 use github::Github;
 use notify::{RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    path::PathBuf,
+    collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, RwLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -33,6 +36,9 @@ struct AppState {
     status: Mutex<Status>,
     wake: Notify,
     force_repos: AtomicBool,
+    data_dir: PathBuf,
+    runs: Mutex<HashMap<(String, String), RunningTask>>,
+    run_seq: AtomicU64,
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -45,6 +51,9 @@ struct Status {
     error: Option<String>,
     config_error: Option<String>,
 }
+
+/// A prompt run in progress (keyed by PR id and prompt name), with a token telling runs apart.
+type RunningTask = (u64, tauri::async_runtime::JoinHandle<()>);
 
 type Res<T> = Result<T, String>;
 
@@ -304,6 +313,205 @@ async fn open_worktree(
     local::open_with(&command, &vars).await.map_err(err)
 }
 
+/// Latest run of each prompt on a PR, letting the webview load the files they mention.
+#[tauri::command]
+fn get_runs(app: AppHandle, st: State<'_, Arc<AppState>>, pr_id: String) -> Res<Vec<Run>> {
+    let runs = st.db.runs(&pr_id).map_err(err)?;
+    let scope = app.asset_protocol_scope();
+    for file in runs.iter().flat_map(|r| &r.files) {
+        // The folder too, for the stylesheets and images an HTML file links to.
+        if let Some(dir) = Path::new(file).parent() {
+            let _ = scope.allow_directory(dir, false);
+        }
+    }
+    Ok(runs)
+}
+
+/// The PR a prompt runs on, as the frontend knows it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Target {
+    id: String,
+    repo: String,
+    number: u64,
+    url: String,
+    branch: String,
+    base: String,
+    head_oid: Option<String>,
+}
+
+/// Saves a run, unless it was cancelled or replaced by a newer run of the same prompt.
+fn save_run(app: &AppHandle, st: &AppState, token: u64, run: &Run, finished: bool) {
+    let key = (run.pr_id.clone(), run.prompt.clone());
+    let mut running = st.runs.lock().unwrap();
+    if running.get(&key).map(|r| r.0) != Some(token) {
+        return;
+    }
+    if finished {
+        running.remove(&key);
+    }
+    let _ = st.db.put_run(run);
+    drop(running);
+    let _ = app.emit("run-updated", &run.pr_id);
+}
+
+async fn run_task(
+    app: &AppHandle,
+    st: &AppState,
+    token: u64,
+    spec: &Prompt,
+    pr: &Target,
+    run: &mut Run,
+) -> anyhow::Result<()> {
+    let roots = clone_roots(st);
+    let mut wt = local::lookup(&roots, &pr.repo, &pr.branch).await?;
+    if wt.path.is_none() {
+        run.activity
+            .push(format!("creating worktree: wt switch pr:{}", pr.number));
+        save_run(app, st, token, run, false);
+        local::create(&roots, &pr.repo, pr.number).await?;
+        changed(app);
+        wt = local::lookup(&roots, &pr.repo, &pr.branch).await?;
+    }
+    let path = wt.path.context("no worktree on the PR branch")?;
+    let safe = |s: &str| s.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_");
+    let out = st
+        .data_dir
+        .join("runs")
+        .join(format!("{}-{}", safe(&pr.repo), pr.number))
+        .join(safe(&spec.name));
+    // Fresh for each run, so it only holds this run's files.
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out)?;
+    let name = path.rsplit('/').next().unwrap_or_default();
+    let (number, out_str) = (pr.number.to_string(), out.display().to_string());
+    let vars = [
+        ("path", path.as_str()),
+        ("name", name),
+        ("branch", &pr.branch),
+        ("base", &pr.base),
+        ("repo", &pr.repo),
+        ("number", &number),
+        ("url", &pr.url),
+        ("out", &out_str),
+    ];
+    let prompt = local::fill(std::slice::from_ref(&spec.prompt), &vars).remove(0);
+    run.path = Some(path.clone());
+    let title = format!("{}#{} {}", pr.repo, pr.number, spec.name);
+    agent::run(spec, Path::new(&path), &out, &title, &prompt, run, |r| {
+        save_run(app, st, token, r, false)
+    })
+    .await
+}
+
+/// Runs a configured prompt on a PR in the background, replacing its previous run.
+#[tauri::command]
+fn run_prompt(app: AppHandle, st: State<'_, Arc<AppState>>, prompt: String, pr: Target) -> Res<()> {
+    let spec = st
+        .cfg
+        .read()
+        .unwrap()
+        .prompts
+        .iter()
+        .find(|p| p.name == prompt)
+        .cloned();
+    let spec = spec.ok_or("no such prompt in the config")?;
+    let run = Run {
+        pr_id: pr.id.clone(),
+        prompt: prompt.clone(),
+        harness: spec.harness,
+        started_at: now_ms(),
+        head_oid: pr.head_oid.clone(),
+        ..Default::default()
+    };
+    let token = st.run_seq.fetch_add(1, Ordering::Relaxed);
+    let key = (pr.id.clone(), prompt);
+    // Locked until the run is registered, so the task's first save can't be rejected.
+    let mut running = st.runs.lock().unwrap();
+    st.db.put_run(&run).map_err(err)?;
+    let task = {
+        let (app, st) = (app.clone(), st.inner().clone());
+        tauri::async_runtime::spawn(async move {
+            let mut run = run;
+            let res = run_task(&app, &st, token, &spec, &pr, &mut run).await;
+            if let Err(e) = res {
+                run.error.get_or_insert_with(|| err(e));
+            }
+            run.status = if run.error.is_some() {
+                RunStatus::Error
+            } else {
+                RunStatus::Done
+            };
+            run.finished_at = Some(now_ms());
+            save_run(&app, &st, token, &run, true);
+        })
+    };
+    if let Some((_, old)) = running.insert(key.clone(), (token, task)) {
+        old.abort();
+    }
+    drop(running);
+    let _ = app.emit("run-updated", &key.0);
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_run(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    pr_id: String,
+    prompt: String,
+) -> Res<()> {
+    let removed = st
+        .runs
+        .lock()
+        .unwrap()
+        .remove(&(pr_id.clone(), prompt.clone()));
+    let Some((_, task)) = removed else {
+        return Ok(());
+    };
+    task.abort(); // drops the harness process with it
+    let runs = st.db.runs(&pr_id).map_err(err)?;
+    if let Some(mut run) = runs.into_iter().find(|r| r.prompt == prompt) {
+        run.status = RunStatus::Cancelled;
+        run.finished_at = Some(now_ms());
+        st.db.put_run(&run).map_err(err)?;
+    }
+    let _ = app.emit("run-updated", &pr_id);
+    Ok(())
+}
+
+/// Reopens a run's agent session interactively with the `terminal` command.
+#[tauri::command]
+async fn continue_run(st: State<'_, Arc<AppState>>, pr_id: String, prompt: String) -> Res<()> {
+    let runs = st.db.runs(&pr_id).map_err(err)?;
+    let run = runs.into_iter().find(|r| r.prompt == prompt);
+    let run = run.ok_or("this prompt hasn't run on this PR")?;
+    let command = agent::resume_command(&run).ok_or("no agent session to continue yet")?;
+    let path = run.path.unwrap_or_default();
+    let name = path.rsplit('/').next().unwrap_or_default();
+    let vars = [
+        ("command", command.as_str()),
+        ("path", &path),
+        ("name", name),
+    ];
+    let terminal = st.cfg.read().unwrap().terminal.clone();
+    local::open_with(&terminal, &vars).await.map_err(err)
+}
+
+/// Opens a file a run on the PR mentioned with its default app.
+#[tauri::command]
+fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<()> {
+    let runs = st.db.runs(&pr_id).map_err(err)?;
+    if !runs.iter().any(|r| r.files.contains(&path)) {
+        return Err("not a file from this PR's runs".into());
+    }
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(err)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -328,7 +536,11 @@ pub fn run() {
                 wake: Notify::new(),
                 force_repos: AtomicBool::new(false),
                 cfg_path: cfg_path.clone(),
+                data_dir: data_dir.clone(),
+                runs: Mutex::default(),
+                run_seq: AtomicU64::new(0),
             });
+            st.db.interrupt_runs()?;
             app.manage(st.clone());
 
             // Watch the directory: editors often save by replacing the file.
@@ -363,6 +575,11 @@ pub fn run() {
             get_worktree,
             create_worktree,
             open_worktree,
+            get_runs,
+            run_prompt,
+            cancel_run,
+            continue_run,
+            open_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
