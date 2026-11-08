@@ -378,6 +378,18 @@ details[open] > summary::before {
 .status .grow {
   text-align: right;
 }
+.status.syncing {
+  color: var(--bg);
+  animation: sync-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes sync-pulse {
+  from {
+    background: color-mix(in srgb, var(--ok) 55%, var(--bg));
+  }
+  to {
+    background: var(--ok);
+  }
+}
 
 /* Overlays */
 .overlay {

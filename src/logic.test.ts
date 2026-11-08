@@ -26,7 +26,9 @@ test("keymap decodes vim keys and gg", () => {
   expect(km(key("G"))).toBe("bottom");
   expect(km(key("d", { ctrlKey: true }))).toBe("pageDown");
   expect(km(key("Tab", { shiftKey: true }))).toBe("left");
-  expect(km(key("r", { metaKey: true }))).toBeNull();
+  expect(km(key("r", { metaKey: true }))).toBe("refresh");
+  expect(km(key("r"))).toBeNull();
+  expect(km(key("c", { metaKey: true }))).toBeNull();
 });
 
 const pr = (repo: string, unread = false): PrSummary => ({
@@ -55,6 +57,7 @@ test("sidebar orders orgs and repos, counts, hides, filters", () => {
     hidden: ["acme/old"],
     collapsed: new Set<string>(),
     showHidden: false,
+    onlyWithPrs: false,
     filter: "",
   };
   const keys = (opts = base) => sidebarItems(opts).map((i) => i.key);
@@ -73,6 +76,14 @@ test("sidebar orders orgs and repos, counts, hides, filters", () => {
   expect(items[0]).toMatchObject({ total: 3, unread: 1 });
   expect(items[1]).toMatchObject({ total: 2, unread: 1 });
   expect(keys({ ...base, showHidden: true })).toContain("repo:acme/old");
+  expect(keys({ ...base, onlyWithPrs: true })).toEqual([
+    "all",
+    "org:acme",
+    "repo:acme/tools",
+    "repo:acme/web",
+    "org:ext",
+    "repo:ext/lib",
+  ]);
   expect(keys({ ...base, collapsed: new Set(["acme"]) }).slice(0, 3)).toEqual([
     "all",
     "org:acme",

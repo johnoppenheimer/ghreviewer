@@ -18,6 +18,7 @@ export type Action =
   | "pin"
   | "hide"
   | "toggleHidden"
+  | "toggleEmpty"
   | "collapse";
 
 type Key = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
@@ -36,13 +37,13 @@ const SINGLE: Record<string, Action> = {
   Escape: "escape",
   "/": "filter",
   o: "open",
-  r: "refresh",
   u: "toggleUnread",
   "?": "help",
   ":": "palette",
   p: "pin",
   x: "hide",
   H: "toggleHidden",
+  e: "toggleEmpty",
   " ": "collapse",
 };
 
@@ -50,7 +51,8 @@ const SINGLE: Record<string, Action> = {
 export function createKeymap() {
   let pending = false;
   return (e: Key): Action | null => {
-    if (e.metaKey || e.altKey) return null;
+    if (e.metaKey) return e.key === "r" ? "refresh" : null;
+    if (e.altKey) return null;
     const wasPending = pending;
     pending = false;
     if (e.ctrlKey) return e.key === "d" ? "pageDown" : e.key === "u" ? "pageUp" : null;
@@ -72,10 +74,11 @@ export const HELP: [string, string][] = [
   ["/", "filter focused list"],
   ["Esc", "clear filter / close"],
   ["o", "open PR in browser"],
-  ["r", "refresh now"],
+  ["Cmd-r", "refresh now"],
   ["u", "toggle unread"],
   ["p / x", "pin / hide repo (sidebar)"],
   ["H", "show hidden repos"],
+  ["e", "hide repos without PRs (sidebar)"],
   ["Space", "collapse org (sidebar)"],
   [":", "command palette"],
   ["?", "this help"],

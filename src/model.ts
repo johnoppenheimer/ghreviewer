@@ -33,9 +33,11 @@ export function sidebarItems(opts: {
   hidden: string[];
   collapsed: Set<string>;
   showHidden: boolean;
+  /** Hide repos with no PRs in the inbox (pinned repos stay). */
+  onlyWithPrs?: boolean;
   filter: string;
 }): SideItem[] {
-  const { inbox, collapsed, showHidden } = opts;
+  const { inbox, collapsed, showHidden, onlyWithPrs } = opts;
   const filter = opts.filter.toLowerCase();
   const pinned = new Set(opts.pinned);
   const hidden = new Set(opts.hidden);
@@ -49,6 +51,7 @@ export function sidebarItems(opts: {
   const orgs = new Map<string, string[]>();
   for (const repo of new Set([...opts.repos, ...byRepo.keys()])) {
     if (hidden.has(repo) && !showHidden) continue;
+    if (onlyWithPrs && !byRepo.has(repo) && !pinned.has(repo)) continue;
     if (filter && !repo.toLowerCase().includes(filter)) continue;
     const org = orgOf(repo);
     orgs.set(org, [...(orgs.get(org) ?? []), repo]);

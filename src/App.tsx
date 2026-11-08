@@ -37,6 +37,7 @@ export default function App() {
   const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings">(null);
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [showHidden, setShowHidden] = useState(false);
+  const [onlyWithPrs, setOnlyWithPrs] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
@@ -73,9 +74,10 @@ export default function App() {
         hidden: config?.repos.hidden ?? [],
         collapsed,
         showHidden,
+        onlyWithPrs,
         filter: filters[0],
       }),
-    [repos, inbox, config, collapsed, showHidden, filters],
+    [repos, inbox, config, collapsed, showHidden, onlyWithPrs, filters],
   );
   const sideIdx = Math.max(
     0,
@@ -168,6 +170,8 @@ export default function App() {
         );
       case "toggleHidden":
         return setShowHidden((v) => !v);
+      case "toggleEmpty":
+        return focus === 0 && setOnlyWithPrs((v) => !v);
       case "collapse":
         if (focus !== 0 || side.kind !== "org") return;
         return setCollapsed((c) => {
@@ -180,6 +184,15 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Cmd shortcuts work everywhere (and Cmd-R must never reload the webview).
+      if (e.metaKey) {
+        const action = keymap(e);
+        if (action) {
+          e.preventDefault();
+          run(action);
+        }
+        return;
+      }
       if (overlay) {
         if (e.key === "Escape" || overlay === "help") {
           e.preventDefault();
@@ -207,6 +220,10 @@ export default function App() {
       label: showHidden ? "hide hidden repos" : "show hidden repos",
       run: () => setShowHidden((v) => !v),
     },
+    {
+      label: onlyWithPrs ? "show repos without PRs" : "hide repos without PRs",
+      run: () => setOnlyWithPrs((v) => !v),
+    },
     ...Object.keys(config?.themes ?? {}).map((theme) => ({
       label: `theme ${theme}`,
       run: () => config && fire(api.saveSettings({ ...config, theme })),
@@ -230,6 +247,7 @@ export default function App() {
         selected={side.key}
         focused={focus === 0}
         showHidden={showHidden}
+        onlyWithPrs={onlyWithPrs}
         filter={filters[0]}
         filterOpen={filterOpen === 0}
         onFilter={(v) => setFilter(0, v)}
@@ -265,7 +283,7 @@ export default function App() {
         onFocus={() => setFocus(2)}
         onLink={(url) => fire(openUrl(url))}
       />
-      <div className="status">
+      <div className={`status ${status?.syncing ? "syncing" : ""}`}>
         <span>{status?.viewer ? `@${status.viewer}` : "…"}</span>
         <span>
           {status?.syncing

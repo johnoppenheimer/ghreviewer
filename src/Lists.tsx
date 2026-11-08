@@ -61,16 +61,20 @@ export function Sidebar(
     selected: string;
     focused: boolean;
     showHidden: boolean;
+    onlyWithPrs: boolean;
     onSelect: (key: string) => void;
   },
 ) {
-  const { items, selected, focused, showHidden, onSelect } = props;
+  const { items, selected, focused, showHidden, onlyWithPrs, onSelect } = props;
   const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head">
         <span>Repos</span>
-        {showHidden && <span>+hidden</span>}
+        <span>
+          {onlyWithPrs && "with PRs "}
+          {showHidden && "+hidden"}
+        </span>
       </div>
       <FilterInput {...props} />
       <div className="scroll" ref={scrollRef}>
