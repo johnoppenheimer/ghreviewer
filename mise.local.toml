@@ -1,0 +1,7 @@
+[tasks.install-app]
+description = "Build the app and install it into /Applications"
+depends = ["build"]
+run = [
+  "rm -rf /Applications/ghreviewer.app",
+  "ditto src-tauri/target/release/bundle/macos/ghreviewer.app /Applications/ghreviewer.app",
+]
