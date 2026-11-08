@@ -134,20 +134,17 @@ export function Sidebar(
   );
 }
 
-/** Stack rail at the left of a PR row; see `Graph`. */
-function StackRail({ g }: { g: Graph }) {
-  const at = (col: number) => ({ "--c": col }) as CSSProperties;
+/** Tree lines at the left of a stacked PR row; see `Graph`. */
+function StackLines({ g }: { g: Graph }) {
+  const at = (level: number) => ({ "--l": level }) as CSSProperties;
   return (
-    <div className="rail" aria-hidden>
-      {g.through.map((c) => (
-        <i key={c} className="through" style={at(c)} />
+    <div className="stack-lines" aria-hidden>
+      {g.through.map((l) => (
+        <i key={l} className="through" style={at(l)} />
       ))}
-      {g.up && <i className="up" style={at(g.col)} />}
-      {g.down && <i className="down" style={at(g.col)} />}
-      {g.branches.map((c) => (
-        <i key={c} className="branch" style={{ ...at(g.col), "--w": c - g.col } as CSSProperties} />
-      ))}
-      <i className="node" style={at(g.col)} />
+      {g.depth > 0 && <i className="elbow" style={at(g.depth - 1)} />}
+      {g.depth > 0 && !g.last && <i className="sibling" style={at(g.depth - 1)} />}
+      {g.down && <i className="down" style={at(g.depth)} />}
     </div>
   );
 }
@@ -183,11 +180,11 @@ export function Inbox(
             <div
               key={pr.id}
               className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""}`}
-              style={{ "--cols": graph?.cols ?? 0 } as CSSProperties}
+              style={{ "--depth": graph?.depth ?? 0 } as CSSProperties}
               title={dim ? "Stack parent, not in your inbox" : undefined}
               onClick={() => onSelect(pr.id)}
             >
-              {graph && <StackRail g={graph} />}
+              {graph && <StackLines g={graph} />}
               <div className="line">
                 <span className="dot">{unread ? "●" : ""}</span>
                 <span className="grow dim">

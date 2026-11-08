@@ -108,18 +108,10 @@ export function inScope(pr: PrSummary, key: string): boolean {
 }
 
 /**
- * Stack rail of one row, git-graph style. `col` holds its node; `cols` is the stack's width.
- * `up`/`down`: line from the node to the row above/below in `col`. `through`: columns whose line
- * passes the row. `branches`: columns a child line curves off to from the node.
+ * Tree lines of a stacked row at `depth`. `last`: no sibling below it, so its `L` doesn't carry on.
+ * `down`: a line drops from it to its children. `through`: shallower levels whose line passes by.
  */
-export type Graph = {
-  col: number;
-  cols: number;
-  up: boolean;
-  down: boolean;
-  through: number[];
-  branches: number[];
-};
+export type Graph = { depth: number; last: boolean; down: boolean; through: number[] };
 export type PrRow = { pr: PrSummary; dim: boolean; graph: Graph | null };
 
 /**
@@ -147,23 +139,14 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
   }
   const rows: PrRow[] = [];
   const done = new Set<PrSummary>();
-  const cols: number[] = [];
-  const parents: number[] = [];
-  // First child carries on in its parent's column, later ones open a column right of all before.
-  const place = (p: PrSummary, col: number, parent: number): number => {
+  // `open[c]`: the line at level `c` continues below this subtree, to a later sibling.
+  const place = (p: PrSummary, depth: number, last: boolean, open: number[]) => {
     done.add(p);
-    const i = rows.length;
-    rows.push({ pr: p, dim: dim.has(p), graph: null });
-    cols.push(col);
-    parents.push(parent);
-    let max = col;
-    let first = true;
-    for (const k of kids.get(p) ?? []) {
-      if (done.has(k)) continue;
-      max = Math.max(max, place(k, first ? col : max + 1, i));
-      first = false;
-    }
-    return max;
+    const ks = (kids.get(p) ?? []).filter((k) => !done.has(k));
+    const graph = { depth, last, down: ks.length > 0, through: open };
+    rows.push({ pr: p, dim: dim.has(p), graph });
+    const below = depth > 0 && !last ? [...open, depth - 1] : open;
+    ks.forEach((k, i) => !done.has(k) && place(k, depth + 1, i === ks.length - 1, below));
   };
   for (const p of visible) {
     let root = p;
@@ -175,25 +158,8 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
     }
     if (done.has(root)) continue;
     const start = rows.length;
-    const width = place(root, 0, -1) + 1;
-    if (rows.length - start < 2) continue;
-    for (let j = start; j < rows.length; j++)
-      rows[j].graph = {
-        col: cols[j],
-        cols: width,
-        up: false,
-        down: false,
-        through: [],
-        branches: [],
-      };
-    for (let j = start + 1; j < rows.length; j++) {
-      const i = parents[j];
-      const [from, to] = [rows[i].graph!, rows[j].graph!];
-      if (to.col === from.col) from.down = true;
-      else from.branches.push(to.col);
-      to.up = true;
-      for (let k = i + 1; k < j; k++) rows[k].graph!.through.push(to.col);
-    }
+    place(root, 0, true, []);
+    if (rows.length - start === 1) rows[start].graph = null;
   }
   return rows;
 }

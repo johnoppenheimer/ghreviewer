@@ -323,56 +323,45 @@ a:hover {
 }
 
 .pr-row {
-  --col: 14px;
+  --indent: 2ch;
   --node-y: calc(6px + 0.5lh);
   position: relative;
   flex-direction: column;
   gap: 0;
-  padding: 6px 10px 6px calc(10px + var(--cols, 0) * var(--col));
+  padding: 6px 10px 6px calc(10px + var(--depth, 0) * var(--indent));
   border-bottom: 1px solid var(--border);
 }
-/* Stack rail: lines joining a PR to the ones stacked on it, across the row borders. */
-.rail {
+/* Stack tree lines, under the unread-dot column of each level and across the row borders. */
+.stack-lines {
   position: absolute;
-  top: 0;
-  bottom: -1px;
-  left: 6px;
+  inset: 0 0 -1px 0;
+  pointer-events: none;
 }
-.rail i {
+.stack-lines i {
   position: absolute;
-  left: calc(var(--c) * var(--col) + var(--col) / 2);
+  left: calc(10px + var(--l) * var(--indent) + 0.5ch);
   border-left: 1px solid var(--dim);
 }
-.rail .through {
+.stack-lines .through {
   top: 0;
   bottom: 0;
 }
-.rail .up {
+/* The L: down from the parent's line, then right into this row. */
+.stack-lines .elbow {
   top: 0;
   height: var(--node-y);
+  /* Up to the child's text, past its unread-dot column (1ch + 8px gap). */
+  width: calc(var(--indent) + 0.5ch + 4px);
+  border-bottom: 1px solid var(--dim);
+  border-bottom-left-radius: 4px;
 }
-.rail .down {
+.stack-lines .sibling {
   top: var(--node-y);
   bottom: 0;
 }
-.rail .branch {
-  top: var(--node-y);
+.stack-lines .down {
+  top: calc(var(--node-y) + 0.5lh);
   bottom: 0;
-  width: calc(var(--w) * var(--col));
-  border-left: none;
-  border-top: 1px solid var(--dim);
-  border-right: 1px solid var(--dim);
-  border-top-right-radius: 6px;
-}
-.rail .node {
-  top: var(--node-y);
-  box-sizing: border-box;
-  width: 9px;
-  height: 9px;
-  margin: -4px 0 0 -4px;
-  border: none;
-  border-radius: 50%;
-  background: var(--dim);
 }
 /* Stacked under a PR that isn't in the inbox itself. */
 .pr-row.stack-parent {
