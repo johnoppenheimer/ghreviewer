@@ -22,29 +22,43 @@ function useNow(ms: number) {
 }
 
 /** GitHub contribution-graph style blocks, 2 rows, fading from full green to bg across 1/3 of the window. */
+const SYNC_ROWS = 5;
+
 function SyncBlocks() {
-  const colsFor = () => Math.ceil(window.innerWidth / 3 / 10); // 8px cell + 2px gap
-  const [cols, setCols] = useState(colsFor);
+  // Square cells sized from the strip's measured height, so it follows the theme's font size.
+  const ref = useRef<HTMLDivElement>(null);
+  const [grid, setGrid] = useState({ cols: 0, cell: 0 });
   useEffect(() => {
-    const onResize = () => setCols(colsFor());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    const el = ref.current!;
+    const measure = () => {
+      const cell = el.clientHeight / SYNC_ROWS;
+      setGrid({ cols: Math.ceil(el.clientWidth / cell), cell });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
+  const { cols, cell } = grid;
   const cells = useMemo(
     () =>
-      Array.from({ length: cols * 2 }, (_, i) => {
-        const col = Math.floor(i / 2);
+      Array.from({ length: cols * SYNC_ROWS }, (_, i) => {
+        const col = Math.floor(i / SYNC_ROWS);
         // 0-4 like GitHub's levels, jittered so it reads as activity rather than a smooth ramp.
         const level = Math.round((1 - col / cols) * 4 + (Math.random() - 0.5) * 1.6);
         return {
           level: Math.max(0, Math.min(4, level)) / 4,
-          delay: col * 50 + Math.random() * 300,
+          delay: (col / cols) * 1500 + Math.random() * 300,
         };
       }),
     [cols],
   );
   return (
-    <div className="sync-blocks" aria-hidden>
+    <div
+      ref={ref}
+      className="sync-blocks"
+      style={{ gridAutoColumns: `${cell}px`, gridTemplateRows: `repeat(${SYNC_ROWS}, 1fr)` }}
+      aria-hidden
+    >
       {cells.map((c, i) => (
         <i key={i} style={{ "--l": c.level, animationDelay: `${c.delay}ms` } as CSSProperties} />
       ))}
