@@ -22,6 +22,30 @@ function useNow(ms: number) {
 }
 
 /** GitHub contribution-graph style blocks, 2 rows, fading from full green to bg across 1/3 of the window. */
+// Clockwise path around the edge of a 3x3 grid (index 4, the center, stays empty).
+const SPINNER_PATH = [0, 1, 2, 5, 8, 7, 6, 3];
+
+/** A lit pixel with a fading tail circling a 3x3 square. */
+function PixelSpinner() {
+  return (
+    <span className="pixel-spinner" aria-hidden>
+      {Array.from({ length: 9 }, (_, i) => {
+        const step = SPINNER_PATH.indexOf(i);
+        return (
+          <i
+            key={i}
+            style={
+              step < 0
+                ? { animation: "none", opacity: 0 }
+                : { animationDelay: `${(step - 8) * 0.1}s` }
+            }
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 const SYNC_ROWS = 5;
 
 function SyncBlocks() {
@@ -210,7 +234,13 @@ export default function App() {
         {wt.path.split("/").pop()}
       </button>
     );
-  else if (creatingWt) wtHead = <span>creating worktree…</span>;
+  else if (creatingWt)
+    wtHead = (
+      <span className="with-spinner">
+        <PixelSpinner />
+        creating worktree…
+      </span>
+    );
   else if (canCreateWt)
     wtHead = (
       <button

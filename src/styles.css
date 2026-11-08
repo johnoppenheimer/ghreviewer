@@ -136,6 +136,35 @@ a:hover {
 .col-head.done .head-btn {
   color: var(--bg);
 }
+.pixel-spinner {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 1px;
+  margin-right: 8px;
+}
+.with-spinner {
+  display: inline-flex;
+  align-items: center;
+}
+.pixel-spinner i {
+  background: currentColor;
+  animation: pixel-spin 0.8s steps(4) infinite;
+}
+@keyframes pixel-spin {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pixel-spinner i {
+    animation: none;
+    opacity: 0.6;
+  }
+}
 .col-head .head-btn {
   pointer-events: auto;
   border: none;
