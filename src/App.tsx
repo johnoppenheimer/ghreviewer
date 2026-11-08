@@ -110,6 +110,7 @@ export default function App() {
   const [uiError, setUiError] = useState<string | null>(null);
   // PR whose worktree was just created; its header flashes green for a moment.
   const [wtCreated, setWtCreated] = useState<string | null>(null);
+  const [paletteQuery, setPaletteQuery] = useState("");
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -219,8 +220,11 @@ export default function App() {
   const creatingWt = createWt.isPending && createWt.variables?.id === selected?.id;
   const headState = creatingWt ? "busy" : wtCreated && wtCreated === selected?.id ? "done" : "";
   const canCreateWt = !!(selected && wt?.clone && wt.wt && !wt.path && !createWt.isPending);
+  const openers = config?.open_with ?? [];
+  const openWorktree = (opener: number) =>
+    wt?.path && selected && branch && fire(api.openWorktree(opener, wt.path, selected, branch));
   const worktreeAction = () => {
-    if (wt?.path) fire(api.openInEditor(wt.path));
+    if (wt?.path) openWorktree(0);
     else if (canCreateWt) createWt.mutate(selected!);
   };
   let wtHead = null;
@@ -228,7 +232,7 @@ export default function App() {
     wtHead = (
       <button
         className="head-btn"
-        title={`${wt.path}\nOpen in ${config?.editor} (w)`}
+        title={`${wt.path}\nOpen in ${openers[0]?.name ?? "?"} (w) · all options (W)`}
         onClick={worktreeAction}
       >
         {wt.path.split("/").pop()}
@@ -283,8 +287,14 @@ export default function App() {
       case "toggleUnread":
         return toggleUnread();
       case "help":
-      case "palette":
         return setOverlay(action);
+      case "palette":
+        setPaletteQuery("");
+        return setOverlay("palette");
+      case "worktreeMenu":
+        if (!wt?.path) return;
+        setPaletteQuery("open worktree in ");
+        return setOverlay("palette");
       case "pin":
       case "hide":
         if (focus !== 0 || side.kind !== "repo") return;
@@ -343,7 +353,9 @@ export default function App() {
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "open PR in browser", run: openSelected },
     { label: "toggle unread", run: toggleUnread },
-    ...(wt?.path ? [{ label: "open worktree in editor", run: worktreeAction }] : []),
+    ...(wt?.path
+      ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
+      : []),
     ...(canCreateWt ? [{ label: "create worktree", run: worktreeAction }] : []),
     {
       label: showHidden ? "hide hidden repos" : "show hidden repos",
@@ -429,7 +441,9 @@ export default function App() {
         <span className="grow">? help · : commands</span>
       </div>
       {overlay === "help" && <Help onClose={() => setOverlay(null)} />}
-      {overlay === "palette" && <Palette commands={commands} onClose={() => setOverlay(null)} />}
+      {overlay === "palette" && (
+        <Palette commands={commands} initialQuery={paletteQuery} onClose={() => setOverlay(null)} />
+      )}
       {overlay === "settings" && config && (
         <Settings config={config} onClose={() => setOverlay(null)} />
       )}

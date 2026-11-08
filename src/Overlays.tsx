@@ -39,8 +39,16 @@ export function Help({ onClose }: { onClose: () => void }) {
 
 export type Command = { label: string; run: () => void };
 
-export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
-  const [query, setQuery] = useState("");
+export function Palette({
+  commands,
+  initialQuery = "",
+  onClose,
+}: {
+  commands: Command[];
+  initialQuery?: string;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const [index, setIndex] = useState(0);
   const shown = commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()));
   const sel = Math.min(index, shown.length - 1);

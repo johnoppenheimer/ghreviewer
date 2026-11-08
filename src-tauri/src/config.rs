@@ -14,8 +14,6 @@ theme = "dark"
 # Local clones: direct children of these folders are matched to GitHub repos by their
 # `origin` remote. Used to show a PR's worktree and create one with worktrunk (`w`).
 clone_roots = ["~/Documents/dev"]
-# macOS app that opens a worktree folder (`open -a <editor> <folder>`).
-editor = "Cursor"
 
 # Each rule is a GitHub search query (`is:pr` is added for you).
 # PRs matching any rule land in the inbox, tagged with the rule name.
@@ -37,6 +35,19 @@ hide_drafts = false
 [repos]
 pinned = []
 hidden = []
+
+# Ways to open a PR's worktree: `w` (or clicking the folder) uses the first one,
+# `W` lists them all. `command` runs through your login shell without shell parsing;
+# in each argument {path}, {name} (folder name), {branch}, {repo} and {number} are replaced.
+[[open_with]]
+name = "Cursor"
+command = ["open", "-a", "Cursor", "{path}"]
+
+# A new Rex session in the worktree, shown in the Rex app (needs Rex's Remote Control on).
+# Rex's CLI is only on PATH inside Rex terminals, hence the full path.
+# [[open_with]]
+# name = "Rex"
+# command = ["sh", "-c", 'rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; id=$("$rex" new "$1" -c "$2" --json | jq -r .session_id) && "$rex" do session.select session_id="$id"', "sh", "{name}", "{path}"]
 
 [themes.dark]
 bg = "#0b0b0b"
@@ -75,11 +86,18 @@ pub struct Config {
     pub poll_interval_secs: u64,
     pub theme: String,
     pub clone_roots: Vec<String>,
-    pub editor: String,
     pub rules: Vec<Rule>,
     pub filters: Filters,
     pub repos: RepoFlags,
+    pub open_with: Vec<Opener>,
     pub themes: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// A command that opens a worktree folder, e.g. an editor or a terminal session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Opener {
+    pub name: String,
+    pub command: Vec<String>,
 }
 
 impl Default for Config {
@@ -88,7 +106,10 @@ impl Default for Config {
             poll_interval_secs: 300,
             theme: "dark".into(),
             clone_roots: vec!["~/Documents/dev".into()],
-            editor: "Cursor".into(),
+            open_with: vec![Opener {
+                name: "Cursor".into(),
+                command: ["open", "-a", "Cursor", "{path}"].map(Into::into).to_vec(),
+            }],
             rules: vec![],
             filters: Filters::default(),
             repos: RepoFlags::default(),
@@ -228,10 +249,21 @@ mod tests {
         assert_eq!(c.rules.len(), 2);
         assert_eq!(c.filters.exclude_authors, vec!["*[bot]"]);
         assert!(c.themes.contains_key("dark") && c.themes.contains_key("light"));
-        assert_eq!(c.editor, "Cursor");
+        assert_eq!(c.open_with, Config::default().open_with);
         // Configs written before these keys existed get the defaults.
         let old: Config = toml::from_str("theme = \"dark\"").unwrap();
         assert_eq!(old.clone_roots, vec!["~/Documents/dev"]);
+        assert_eq!(old.open_with[0].name, "Cursor");
+        // The commented Rex example must stay valid TOML once uncommented.
+        let rex = STARTER
+            .lines()
+            .skip_while(|l| !l.starts_with("# [[open_with]]"))
+            .take(3)
+            .map(|l| l.trim_start_matches("# "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rex: Config = toml::from_str(&rex).unwrap();
+        assert_eq!(rex.open_with[0].command[0], "sh");
     }
 
     #[test]

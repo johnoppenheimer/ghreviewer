@@ -35,7 +35,7 @@ export type Config = {
   poll_interval_secs: number;
   theme: string;
   clone_roots: string[];
-  editor: string;
+  open_with: { name: string; command: string[] }[];
   rules: Rule[];
   filters: Filters;
   repos: { pinned: string[]; hidden: string[] };
@@ -145,5 +145,7 @@ export const api = {
   worktree: (repo: string, branch: string) => invoke<Worktree>("get_worktree", { repo, branch }),
   createWorktree: (repo: string, number: number) =>
     invoke<void>("create_worktree", { repo, number }),
-  openInEditor: (path: string) => invoke<void>("open_in_editor", { path }),
+  /** Runs the `opener`-th `open_with` command from the config on a worktree. */
+  openWorktree: (opener: number, path: string, pr: PrSummary, branch: string) =>
+    invoke<void>("open_worktree", { opener, path, repo: pr.repo, branch, number: pr.number }),
 };

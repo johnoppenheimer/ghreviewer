@@ -274,10 +274,34 @@ async fn create_worktree(st: State<'_, Arc<AppState>>, repo: String, number: u64
         .map_err(err)
 }
 
+/// Runs the `opener`-th `open_with` command on a PR's worktree.
 #[tauri::command]
-async fn open_in_editor(st: State<'_, Arc<AppState>>, path: String) -> Res<()> {
-    let editor = st.cfg.read().unwrap().editor.clone();
-    local::open_in(&editor, &path).await.map_err(err)
+async fn open_worktree(
+    st: State<'_, Arc<AppState>>,
+    opener: usize,
+    path: String,
+    repo: String,
+    branch: String,
+    number: u64,
+) -> Res<()> {
+    let command = st
+        .cfg
+        .read()
+        .unwrap()
+        .open_with
+        .get(opener)
+        .map(|o| o.command.clone());
+    let command = command.ok_or("no such `open_with` entry")?;
+    let name = path.rsplit('/').next().unwrap_or_default().to_string();
+    let number = number.to_string();
+    let vars = [
+        ("path", path.as_str()),
+        ("name", &name),
+        ("branch", &branch),
+        ("repo", &repo),
+        ("number", &number),
+    ];
+    local::open_with(&command, &vars).await.map_err(err)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -338,7 +362,7 @@ pub fn run() {
             open_config,
             get_worktree,
             create_worktree,
-            open_in_editor,
+            open_worktree,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

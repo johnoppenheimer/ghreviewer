@@ -141,19 +141,46 @@ pub async fn create(roots: &[String], repo: &str, number: u64) -> Result<()> {
     Ok(())
 }
 
-/// Opens `path` with a macOS app, e.g. `Cursor` or `Visual Studio Code`.
-pub async fn open_in(app: &str, path: &str) -> Result<()> {
-    let out = Command::new("open")
-        .args(["-a", app, path])
-        .output()
-        .await?;
-    if !out.status.success() {
-        bail!(
-            "open -a {app}: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+/// Replaces `{key}` placeholders in each argument of a command template.
+fn fill(template: &[String], vars: &[(&str, &str)]) -> Vec<String> {
+    template
+        .iter()
+        .map(|arg| {
+            vars.iter().fold(arg.clone(), |acc, (k, v)| {
+                acc.replace(&format!("{{{k}}}"), v)
+            })
+        })
+        .collect()
+}
+
+/// Runs a user `open_with` command through the login shell (for the user's PATH),
+/// passing the arguments untouched so paths never get shell-parsed.
+pub async fn open_with(template: &[String], vars: &[(&str, &str)]) -> Result<()> {
+    let args = fill(template, vars);
+    let program = args.first().context("`open_with` command is empty")?;
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let child = command(&shell)
+        .args(["-lc", r#"exec "$@""#, "ghreviewer"])
+        .args(&args)
+        .kill_on_drop(false)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| format!("running {program}"))?;
+    // Report failures of quick commands; leave long-running ones (e.g. `code --wait`) alone.
+    let wait = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output());
+    match wait.await {
+        Ok(out) => {
+            let out = out?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                bail!("{program} failed: {}", stderr.trim());
+            }
+            Ok(())
+        }
+        Err(_) => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -180,6 +207,30 @@ mod tests {
                    [remote \"origin\"]\n\tfetch = +refs/heads/*\n\turl = git@github.com:me/x.git\n";
         assert_eq!(origin_url(cfg), Some("git@github.com:me/x.git"));
         assert_eq!(origin_url("[core]\n"), None);
+    }
+
+    #[test]
+    fn fills_placeholders() {
+        let t = ["sh", "-c", "x", "{name}", "{path}/{path}", "{unknown}"].map(String::from);
+        let out = fill(&t, &[("path", "/a b"), ("name", "a b")]);
+        assert_eq!(out, ["sh", "-c", "x", "a b", "/a b//a b", "{unknown}"]);
+    }
+
+    #[tokio::test]
+    async fn open_with_runs_and_reports_failures() {
+        let dir = std::env::temp_dir().join(format!("ghreviewer-open-{}", std::process::id()));
+        let marker = dir.join("it's \"here\"");
+        std::fs::create_dir_all(&dir).unwrap();
+        let touch = ["touch", "{path}"].map(String::from);
+        open_with(&touch, &[("path", marker.to_str().unwrap())])
+            .await
+            .unwrap();
+        assert!(marker.exists());
+        let fail = ["sh", "-c", "echo nope >&2; exit 3"].map(String::from);
+        let err = open_with(&fail, &[]).await.unwrap_err().to_string();
+        assert!(err.contains("nope"), "{err}");
+        assert!(open_with(&[], &[]).await.is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
