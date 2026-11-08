@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { type PrDetail, type PrSummary, type Repo, api } from "./api";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
@@ -19,6 +19,37 @@ function useNow(ms: number) {
     return () => clearInterval(t);
   }, [ms]);
   return now;
+}
+
+/** GitHub contribution-graph style blocks, 2 rows, fading from full green to bg across 1/3 of the window. */
+function SyncBlocks() {
+  const colsFor = () => Math.ceil(window.innerWidth / 3 / 10); // 8px cell + 2px gap
+  const [cols, setCols] = useState(colsFor);
+  useEffect(() => {
+    const onResize = () => setCols(colsFor());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const cells = useMemo(
+    () =>
+      Array.from({ length: cols * 2 }, (_, i) => {
+        const col = Math.floor(i / 2);
+        // 0-4 like GitHub's levels, jittered so it reads as activity rather than a smooth ramp.
+        const level = Math.round((1 - col / cols) * 4 + (Math.random() - 0.5) * 1.6);
+        return {
+          level: Math.max(0, Math.min(4, level)) / 4,
+          delay: col * 50 + Math.random() * 300,
+        };
+      }),
+    [cols],
+  );
+  return (
+    <div className="sync-blocks" aria-hidden>
+      {cells.map((c, i) => (
+        <i key={i} style={{ "--l": c.level, animationDelay: `${c.delay}ms` } as CSSProperties} />
+      ))}
+    </div>
+  );
 }
 
 export default function App() {
@@ -284,8 +315,9 @@ export default function App() {
         onLink={(url) => fire(openUrl(url))}
       />
       <div className={`status ${status?.syncing ? "syncing" : ""}`}>
+        {status?.syncing && <SyncBlocks />}
         <span>{status?.viewer ? `@${status.viewer}` : "…"}</span>
-        <span>
+        <span className={status?.syncing ? "ok" : ""}>
           {status?.syncing
             ? "syncing…"
             : synced
