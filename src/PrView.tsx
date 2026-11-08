@@ -295,7 +295,7 @@ export function PrView(props: {
   const { summary, detail, error, focused, now, paneRef, onFocus, onLink } = props;
   return (
     <div className={`col ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
-      <div className="col-head">
+      <div className="col-head" data-tauri-drag-region>
         <span className="grow">{summary ? `${summary.repo}#${summary.number}` : "PR"}</span>
         {summary && !detail && !error && <span>loading…</span>}
       </div>

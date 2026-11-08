@@ -100,15 +100,27 @@ a:hover {
 .col:last-of-type {
   border-right: none;
 }
+/* Column headers double as the window title bar (titleBarStyle: Overlay). */
 .col-head {
   display: flex;
   justify-content: space-between;
-  padding: 4px 10px;
+  align-items: center;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
   color: var(--dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.9em;
+}
+/* Clicks fall through to the header itself, which is the drag region. */
+.col-head > * {
+  pointer-events: none;
+}
+/* Room for the traffic lights. */
+.col:first-child .col-head {
+  padding-left: 78px;
 }
 .col.focused .col-head {
   color: var(--accent);

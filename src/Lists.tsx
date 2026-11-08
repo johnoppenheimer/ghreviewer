@@ -69,7 +69,7 @@ export function Sidebar(
   const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
-      <div className="col-head">
+      <div className="col-head" data-tauri-drag-region>
         <span>Repos</span>
         <span>
           {onlyWithPrs && "with PRs "}
@@ -120,7 +120,7 @@ export function Inbox(
   const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
-      <div className="col-head">
+      <div className="col-head" data-tauri-drag-region>
         <span className="grow">{title}</span>
         <span>{prs.length}</span>
       </div>
