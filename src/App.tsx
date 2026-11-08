@@ -12,6 +12,20 @@ import { PrView } from "./PrView";
 const NO_REPOS: Repo[] = [];
 const NO_PRS: PrSummary[] = [];
 
+/** useState that survives relaunches (webview localStorage). */
+function usePersisted<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved === null ? initial : (JSON.parse(saved) as T);
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => localStorage.setItem(key, JSON.stringify(value)), [key, value]);
+  return [value, setValue] as const;
+}
+
 function useNow(ms: number) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -101,12 +115,12 @@ export default function App() {
   const [focus, setFocus] = useState(1);
   const [sideKey, setSideKey] = useState("all");
   const [prId, setPrId] = useState<string | null>(null);
-  const [filters, setFilters] = useState(["", ""]);
+  const [filters, setFilters] = usePersisted("filters", ["", ""]);
   const [filterOpen, setFilterOpen] = useState<number | null>(null);
   const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings">(null);
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [showHidden, setShowHidden] = useState(false);
-  const [onlyWithPrs, setOnlyWithPrs] = useState(false);
+  const [onlyWithPrs, setOnlyWithPrs] = usePersisted("onlyWithPrs", false);
   const [uiError, setUiError] = useState<string | null>(null);
   // PR whose worktree was just created; its header flashes green for a moment.
   const [wtCreated, setWtCreated] = useState<string | null>(null);
