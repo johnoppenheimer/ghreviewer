@@ -37,8 +37,14 @@ function FilterInput({ filter, filterOpen, onFilter, onFilterDone }: FilterProps
   );
 }
 
-const scrollIfSelected = (selected: boolean) =>
-  selected ? (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest" }) : undefined;
+/** Scrolls the selected row into view when the selection changes, not on every re-render. */
+function useScrollToSelected(selected: string | null) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+  return ref;
+}
 
 function Count({ total, unread }: { total: number; unread: number }) {
   if (!total) return null;
@@ -59,6 +65,7 @@ export function Sidebar(
   },
 ) {
   const { items, selected, focused, showHidden, onSelect } = props;
+  const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head">
@@ -66,7 +73,7 @@ export function Sidebar(
         {showHidden && <span>+hidden</span>}
       </div>
       <FilterInput {...props} />
-      <div className="scroll">
+      <div className="scroll" ref={scrollRef}>
         {items.map((it) => {
           const sel = it.key === selected;
           let cls = "side-all";
@@ -81,7 +88,6 @@ export function Sidebar(
           return (
             <div
               key={it.key}
-              ref={scrollIfSelected(sel)}
               className={`row ${cls} ${sel ? "selected" : ""}`}
               onClick={() => onSelect(it.key)}
             >
@@ -107,6 +113,7 @@ export function Inbox(
   },
 ) {
   const { title, prs, selected, focused, empty, now, onSelect } = props;
+  const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head">
@@ -114,7 +121,7 @@ export function Inbox(
         <span>{prs.length}</span>
       </div>
       <FilterInput {...props} />
-      <div className="scroll">
+      <div className="scroll" ref={scrollRef}>
         {prs.length === 0 && <div className="empty">{empty}</div>}
         {prs.map((pr) => {
           const sel = pr.id === selected;
@@ -123,7 +130,6 @@ export function Inbox(
           return (
             <div
               key={pr.id}
-              ref={scrollIfSelected(sel)}
               className={`row pr-row ${sel ? "selected" : ""} ${pr.unread ? "unread" : ""}`}
               onClick={() => onSelect(pr.id)}
             >

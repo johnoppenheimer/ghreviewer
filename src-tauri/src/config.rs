@@ -123,14 +123,35 @@ pub fn path() -> PathBuf {
         .join(".config/ghreviewer/config.toml")
 }
 
-/// Reads the config, writing the starter one first if the file doesn't exist.
-pub fn load(path: &Path) -> Result<Config> {
+/// Writes the starter config if there is none yet. Startup only, never on reload.
+pub fn ensure(path: &Path) -> Result<()> {
     if !path.exists() {
         std::fs::create_dir_all(path.parent().context("bad config path")?)?;
-        std::fs::write(path, STARTER)?;
+        write(path, STARTER)?;
     }
-    let text = std::fs::read_to_string(path)?;
-    toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))
+    Ok(())
+}
+
+/// Reads the config. `None` when the file is missing or empty, e.g. while an editor saves it.
+pub fn load(path: &Path) -> Result<Option<Config>> {
+    let text = match std::fs::read_to_string(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        res => res?,
+    };
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    toml::from_str(&text)
+        .map(Some)
+        .with_context(|| format!("invalid {}", path.display()))
+}
+
+/// Replaces the file in one step so the watcher never reads it half-written.
+pub fn write(path: &Path, text: &str) -> Result<()> {
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 fn strings(items: &[String]) -> Array {
@@ -200,11 +221,20 @@ mod tests {
     }
 
     #[test]
-    fn load_writes_starter() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("sub/config.toml");
-        assert_eq!(load(&p).unwrap().theme, "dark");
+    fn ensure_load_write() {
+        let dir = std::env::temp_dir().join(format!("ghreviewer-test-{}", std::process::id()));
+        let p = dir.join("sub/config.toml");
+        assert!(load(&p).unwrap().is_none());
+        ensure(&p).unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), STARTER);
+        assert_eq!(load(&p).unwrap().unwrap().theme, "dark");
+        write(&p, "theme = \"light\"").unwrap();
+        ensure(&p).unwrap();
+        assert_eq!(load(&p).unwrap().unwrap().theme, "light");
+        write(&p, "  \n").unwrap();
+        assert!(load(&p).unwrap().is_none());
+        assert!(!p.with_extension("toml.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

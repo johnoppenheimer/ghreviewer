@@ -63,7 +63,8 @@ fn update_status(app: &AppHandle, st: &AppState, f: impl FnOnce(&mut Status)) {
 
 fn reload_config(app: &AppHandle, st: &AppState) {
     match config::load(&st.cfg_path) {
-        Ok(new) => {
+        Ok(None) => {} // missing or empty mid-save: keep the current config
+        Ok(Some(new)) => {
             let rules_changed = {
                 let mut cfg = st.cfg.write().unwrap();
                 let rules_changed = cfg.rules != new.rules;
@@ -102,29 +103,31 @@ async fn sync_once(st: &AppState, with_repos: bool) -> anyhow::Result<Option<u64
     Ok(remaining)
 }
 
-/// Caches details of new or changed PRs so opening them is instant.
+async fn refresh_detail(st: &AppState, id: &str) -> anyhow::Result<Value> {
+    let detail = sync::fetch_detail(&st.gh, id).await?;
+    st.db.put_detail(id, &detail)?;
+    Ok(detail)
+}
+
+const PREFETCH_MAX: usize = 20;
+
+/// Caches details of the newest unread PRs that changed, so opening them is instant.
 async fn prefetch_details(st: &Arc<AppState>) {
     let filters = st.cfg.read().unwrap().filters.clone();
-    let Ok(prs) = st.db.inbox(&filters) else {
+    let (Ok(prs), Ok(cached)) = (st.db.inbox(&filters), st.db.detail_versions()) else {
         return;
     };
     let stale: Vec<String> = prs
         .into_iter()
-        .filter(|pr| {
-            let cached = st.db.detail(&pr.id).ok().flatten();
-            cached.is_none_or(|d| d["updatedAt"] != json!(pr.updated_at))
-        })
+        .filter(|pr| pr.unread && cached.get(&pr.id) != Some(&pr.updated_at))
+        .take(PREFETCH_MAX)
         .map(|pr| pr.id)
         .collect();
     for chunk in stale.chunks(4) {
         let mut set = tokio::task::JoinSet::new();
         for id in chunk {
             let (st, id) = (st.clone(), id.clone());
-            set.spawn(async move {
-                if let Ok(detail) = sync::fetch_detail(&st.gh, &id).await {
-                    let _ = st.db.put_detail(&id, &detail);
-                }
-            });
+            set.spawn(async move { refresh_detail(&st, &id).await });
         }
         set.join_all().await;
     }
@@ -187,16 +190,13 @@ async fn get_pr(app: AppHandle, st: State<'_, Arc<AppState>>, id: String) -> Res
     if let Some(cached) = st.db.detail(&id).map_err(err)? {
         let st = st.inner().clone();
         tauri::async_runtime::spawn(async move {
-            if let Ok(detail) = sync::fetch_detail(&st.gh, &id).await {
-                let _ = st.db.put_detail(&id, &detail);
+            if let Ok(detail) = refresh_detail(&st, &id).await {
                 let _ = app.emit("pr-updated", json!({ "id": id, "detail": detail }));
             }
         });
         return Ok(cached);
     }
-    let detail = sync::fetch_detail(&st.gh, &id).await.map_err(err)?;
-    st.db.put_detail(&id, &detail).map_err(err)?;
-    Ok(detail)
+    refresh_detail(&st, &id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -218,7 +218,7 @@ fn edit_config(
     f: impl FnOnce(&str) -> anyhow::Result<String>,
 ) -> Res<()> {
     let text = std::fs::read_to_string(&st.cfg_path).map_err(err)?;
-    std::fs::write(&st.cfg_path, f(&text).map_err(err)?).map_err(err)?;
+    config::write(&st.cfg_path, &f(&text).map_err(err)?).map_err(err)?;
     reload_config(app, st);
     Ok(())
 }
@@ -259,8 +259,9 @@ pub fn run() {
             let data_dir = dirs::data_dir().context("no data dir")?.join("ghreviewer");
             std::fs::create_dir_all(&data_dir)?;
             let cfg_path = config::path();
+            config::ensure(&cfg_path)?;
             let (cfg, config_error) = match config::load(&cfg_path) {
-                Ok(c) => (c, None),
+                Ok(c) => (c.unwrap_or_default(), None),
                 Err(e) => (Config::default(), Some(err(e))),
             };
             let st = Arc::new(AppState {

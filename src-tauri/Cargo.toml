@@ -45,6 +45,3 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
-
-[dev-dependencies]
-tempfile = "3.27.0"

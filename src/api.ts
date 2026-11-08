@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Repo = { nameWithOwner: string; isPrivate: boolean; pushedAt: string | null };
+export type Repo = { nameWithOwner: string };
 
 export type PrSummary = {
   id: string;

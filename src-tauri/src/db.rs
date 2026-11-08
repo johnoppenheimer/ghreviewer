@@ -107,6 +107,17 @@ impl Db {
         Ok(json.map(|j| serde_json::from_str(&j)).transpose()?)
     }
 
+    /// `updatedAt` of every cached detail, without parsing the full JSON.
+    pub fn detail_versions(&self) -> Result<HashMap<String, String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, json_extract(json, '$.updatedAt') FROM pr_detail
+             WHERE json_extract(json, '$.updatedAt') IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn put_detail(&self, id: &str, detail: &Value) -> Result<()> {
         self.conn().execute(
             "INSERT OR REPLACE INTO pr_detail (id, json) VALUES (?1, ?2)",
@@ -283,6 +294,10 @@ mod tests {
         db.put_detail("a", &serde_json::json!({ "id": "a" }))
             .unwrap();
         assert!(db.detail("a").unwrap().is_some());
+        assert!(db.detail_versions().unwrap().is_empty()); // no updatedAt in this fixture
+        db.put_detail("a", &serde_json::json!({ "id": "a", "updatedAt": "t1" }))
+            .unwrap();
+        assert_eq!(db.detail_versions().unwrap()["a"], "t1");
         db.replace_prs(&[]).unwrap();
         assert!(db.detail("a").unwrap().is_none());
     }

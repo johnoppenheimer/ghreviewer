@@ -29,6 +29,7 @@ impl Github {
         Self {
             http: reqwest::Client::builder()
                 .user_agent("ghreviewer")
+                .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("http client"),
             token: Mutex::new(None),

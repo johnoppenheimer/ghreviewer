@@ -99,10 +99,12 @@ export default function App() {
     enabled: !!selected,
   });
 
+  const browsingRepos = focus === 0;
   useEffect(() => {
-    if (selected?.unread) fire(api.setUnread(selected.id, false));
+    if (selected?.unread && !browsingRepos) fire(api.setUnread(selected.id, false));
     // Only on opening a PR or on new activity while it's open, so `u` sticks.
-  }, [selected?.id, selected?.lastOthersActivityAt]);
+    // Not while moving through repos: that only previews each repo's first PR.
+  }, [selected?.id, selected?.lastOthersActivityAt, browsingRepos]);
 
   useEffect(() => paneRef.current?.scrollTo({ top: 0 }), [selected?.id]);
 

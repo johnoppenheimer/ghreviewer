@@ -1,5 +1,5 @@
 use crate::{config::Rule, github::Github};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -8,8 +8,6 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct Repo {
     pub name_with_owner: String,
-    pub is_private: bool,
-    pub pushed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,7 +71,7 @@ query($after: String) {
       affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER],
       ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]) {
       pageInfo { hasNextPage endCursor }
-      nodes { nameWithOwner isPrivate pushedAt }
+      nodes { nameWithOwner }
     }
   }
 }"#;
@@ -378,6 +376,9 @@ query($id: ID!, $after: String) {{
 pub async fn fetch_detail(gh: &Github, id: &str) -> Result<Value> {
     let query = detail_query();
     let mut pr: Value = gh.query::<Value>(&query, json!({ "id": id })).await?["node"].take();
+    if pr.is_null() {
+        bail!("PR not found, or no access to it");
+    }
     for _ in 0..10 {
         let info = &pr["timelineItems"]["pageInfo"];
         if info["hasNextPage"] != json!(true) {
@@ -387,16 +388,18 @@ pub async fn fetch_detail(gh: &Github, id: &str) -> Result<Value> {
         let mut next: Value = gh
             .query(&query, json!({ "id": id, "after": after }))
             .await?;
-        let page = next["node"]["timelineItems"].take();
-        if let (Some(nodes), Some(more)) = (
-            pr["timelineItems"]["nodes"].as_array_mut(),
-            page["nodes"].as_array(),
-        ) {
-            nodes.extend(more.iter().cloned());
-        }
-        pr["timelineItems"]["pageInfo"] = page["pageInfo"].clone();
+        append_page(&mut pr, next["node"]["timelineItems"].take());
     }
     Ok(pr)
+}
+
+/// Adds a further timeline page to `pr` and takes over its cursor.
+fn append_page(pr: &mut Value, mut page: Value) {
+    let more = page["nodes"].take();
+    if let (Some(nodes), Value::Array(more)) = (pr["timelineItems"]["nodes"].as_array_mut(), more) {
+        nodes.extend(more);
+    }
+    pr["timelineItems"]["pageInfo"] = page["pageInfo"].take();
 }
 
 #[cfg(test)]
@@ -469,6 +472,30 @@ mod tests {
                 d["timelineItems"]["nodes"].as_array().unwrap().len()
             );
         }
+    }
+
+    #[test]
+    fn timeline_pages_append() {
+        let mut pr = json!({ "id": "PR_1", "timelineItems": {
+            "pageInfo": { "hasNextPage": true, "endCursor": "c1" },
+            "nodes": [{ "id": "a" }],
+        }});
+        append_page(
+            &mut pr,
+            json!({
+                "pageInfo": { "hasNextPage": false, "endCursor": "c2" },
+                "nodes": [{ "id": "b" }, { "id": "c" }],
+            }),
+        );
+        let ids: Vec<_> = pr["timelineItems"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+        assert_eq!(pr["timelineItems"]["pageInfo"]["hasNextPage"], json!(false));
+        assert_eq!(pr["id"], json!("PR_1"));
     }
 
     #[test]
