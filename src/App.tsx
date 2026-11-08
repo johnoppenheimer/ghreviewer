@@ -139,7 +139,6 @@ export default function App() {
 
   const items = useMemo(
     () => [
-      ...runItems(activeRuns),
       ...sidebarItems({
         repos: repos.map((r) => r.nameWithOwner),
         inbox,
@@ -150,6 +149,7 @@ export default function App() {
         onlyWithPrs,
         filter: filters[0],
       }),
+      ...runItems(activeRuns),
     ],
     [activeRuns, repos, inbox, config, collapsed, showHidden, onlyWithPrs, filters],
   );

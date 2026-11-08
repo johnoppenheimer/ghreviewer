@@ -298,16 +298,19 @@ a:hover {
 .side-all {
   font-weight: bold;
 }
-/* Agent runs, going or unread, sit above All. */
+/* Agent runs, going or unread, pinned at the bottom of the sidebar. */
+.side-runs {
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
 .side-run {
   align-items: center;
 }
 .side-run .pixel-spinner {
   margin-right: 0;
-}
-.side-run + .side-all {
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
 }
 .side-repo {
   padding-left: 22px;

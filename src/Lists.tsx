@@ -75,6 +75,9 @@ export function Sidebar(
 ) {
   const { items, selected, focused, showHidden, onlyWithPrs, onSelect } = props;
   const scrollRef = useScrollToSelected(selected);
+  const runsRef = useScrollToSelected(selected);
+  // Agent runs (going or unread) stay pinned under the scrolling repo list.
+  const runs = items.flatMap((it) => (it.kind === "run" ? [it] : []));
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head" data-tauri-drag-region>
@@ -88,22 +91,7 @@ export function Sidebar(
       <div className="scroll" ref={scrollRef}>
         {items.map((it) => {
           const sel = it.key === selected;
-          if (it.kind === "run") {
-            const { run } = it;
-            return (
-              <div
-                key={it.key}
-                className={`row side-run ${sel ? "selected" : ""}`}
-                title={`${run.repo}#${run.number} · ${run.prompt} · ${run.status}`}
-                onClick={() => onSelect(it.key)}
-              >
-                <span className="grow">
-                  {run.repo.split("/")[1]}#{run.number} <span className="tag">{run.prompt}</span>
-                </span>
-                <RunMark status={run.status} />
-              </div>
-            );
-          }
+          if (it.kind === "run") return null;
           let cls = "side-all";
           let label = "All";
           if (it.kind === "org") {
@@ -125,6 +113,23 @@ export function Sidebar(
           );
         })}
       </div>
+      {runs.length > 0 && (
+        <div className="side-runs" ref={runsRef}>
+          {runs.map(({ key, run }) => (
+            <div
+              key={key}
+              className={`row side-run ${key === selected ? "selected" : ""}`}
+              title={`${run.repo}#${run.number} · ${run.prompt} · ${run.status}`}
+              onClick={() => onSelect(key)}
+            >
+              <span className="grow">
+                {run.repo.split("/")[1]}#{run.number} <span className="tag">{run.prompt}</span>
+              </span>
+              <RunMark status={run.status} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
