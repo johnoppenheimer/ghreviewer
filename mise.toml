@@ -1,0 +1,32 @@
+[tools]
+rust = { version = "1.99.1", components = "clippy,rustfmt" }
+bun = "1.4.4"
+
+[tasks.install]
+description = "Install frontend deps"
+run = "bun install"
+
+[tasks.dev]
+description = "Run the app in dev mode"
+run = "bun tauri dev"
+
+[tasks.build]
+description = "Build the macOS app bundle"
+run = "bun tauri build"
+
+[tasks.fmt]
+description = "Format Rust and frontend"
+run = ["cargo fmt --manifest-path src-tauri/Cargo.toml", "bunx oxfmt ."]
+
+[tasks.lint]
+description = "Lint and typecheck"
+run = [
+  "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+  "bunx oxlint .",
+  "bunx oxfmt --check .",
+  "bunx tsc --noEmit",
+]
+
+[tasks.test]
+description = "Run tests"
+run = ["cargo test --manifest-path src-tauri/Cargo.toml", "bun test"]
