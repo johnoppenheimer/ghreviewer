@@ -291,13 +291,16 @@ export function PrView(props: {
   paneRef: RefObject<HTMLDivElement | null>;
   /** Right side of the header (worktree folder / create button). */
   headRight: ReactNode;
+  /** Header highlight: "busy" while creating a worktree, "done" right after. */
+  headState: "" | "busy" | "done";
   onFocus: () => void;
   onLink: (url: string) => void;
 }) {
-  const { summary, detail, error, focused, now, paneRef, headRight, onFocus, onLink } = props;
+  const { summary, detail, error, focused, now, paneRef, headRight, headState, onFocus, onLink } =
+    props;
   return (
     <div className={`col ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
-      <div className="col-head" data-tauri-drag-region>
+      <div className={`col-head ${headState}`} data-tauri-drag-region>
         <span className="grow">{summary ? `${summary.repo}#${summary.number}` : "PR"}</span>
         {summary && !detail && !error ? <span>loading…</span> : headRight}
       </div>

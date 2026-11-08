@@ -84,6 +84,8 @@ export default function App() {
   const [showHidden, setShowHidden] = useState(false);
   const [onlyWithPrs, setOnlyWithPrs] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
+  // PR whose worktree was just created; its header flashes green for a moment.
+  const [wtCreated, setWtCreated] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -183,10 +185,15 @@ export default function App() {
   }).data;
   const createWt = useMutation({
     mutationFn: (pr: PrSummary) => api.createWorktree(pr.repo, pr.number),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["worktree"] }),
+    onSuccess: (_, pr) => {
+      qc.invalidateQueries({ queryKey: ["worktree"] });
+      setWtCreated(pr.id);
+      setTimeout(() => setWtCreated((id) => (id === pr.id ? null : id)), 2000);
+    },
     onError: (e) => setUiError(String(e)),
   });
   const creatingWt = createWt.isPending && createWt.variables?.id === selected?.id;
+  const headState = creatingWt ? "busy" : wtCreated && wtCreated === selected?.id ? "done" : "";
   const canCreateWt = !!(selected && wt?.clone && wt.wt && !wt.path && !createWt.isPending);
   const worktreeAction = () => {
     if (wt?.path) fire(api.openInEditor(wt.path));
@@ -373,6 +380,7 @@ export default function App() {
         now={now}
         paneRef={paneRef}
         headRight={wtHead}
+        headState={headState}
         onFocus={() => setFocus(2)}
         onLink={(url) => fire(openUrl(url))}
       />

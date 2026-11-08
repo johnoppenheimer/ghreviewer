@@ -118,6 +118,24 @@ a:hover {
 .col-head > * {
   pointer-events: none;
 }
+.col-head {
+  transition:
+    background-color 0.4s,
+    color 0.4s;
+}
+.col .col-head.busy,
+.col.focused .col-head.busy {
+  background: color-mix(in srgb, var(--warn) 22%, var(--bg));
+  color: var(--warn);
+}
+.col .col-head.done,
+.col.focused .col-head.done {
+  background: var(--ok);
+  color: var(--bg);
+}
+.col-head.done .head-btn {
+  color: var(--bg);
+}
 .col-head .head-btn {
   pointer-events: auto;
   border: none;
