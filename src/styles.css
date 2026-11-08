@@ -118,6 +118,18 @@ a:hover {
 .col-head > * {
   pointer-events: none;
 }
+.col-head .head-btn {
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.col-head .head-btn:hover {
+  text-decoration: underline;
+}
 /* Room for the traffic lights. */
 .col:first-child .col-head {
   padding-left: 78px;

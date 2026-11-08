@@ -1,0 +1,239 @@
+//! Local clones and worktrees: finds a repo's clone under the configured roots,
+//! looks up the worktree checked out on a PR branch, and creates one with worktrunk.
+
+use anyhow::{Context, Result, bail};
+use serde::Serialize;
+use std::path::PathBuf;
+use tokio::process::Command;
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    /// Main clone of the repo, if one was found under the clone roots.
+    pub clone: Option<String>,
+    /// Worktree checked out on the PR branch (may be the main clone itself).
+    pub path: Option<String>,
+    /// Whether worktrunk (`wt`) is installed.
+    pub wt: bool,
+}
+
+/// GUI apps on macOS start with a minimal PATH; add the usual install locations.
+fn command(program: &str) -> Command {
+    let home = dirs::home_dir().unwrap_or_default();
+    let extra = [
+        "/opt/homebrew/bin".into(),
+        "/usr/local/bin".into(),
+        home.join(".local/bin"),
+        home.join(".cargo/bin"),
+    ];
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::env::join_paths(extra.into_iter().chain(std::env::split_paths(&current)))
+        .unwrap_or(current);
+    let mut cmd = Command::new(program);
+    cmd.env("PATH", path).kill_on_drop(true);
+    cmd
+}
+
+fn expand(root: &str) -> PathBuf {
+    match root.strip_prefix("~/") {
+        Some(rest) => dirs::home_dir().unwrap_or_default().join(rest),
+        None => PathBuf::from(root),
+    }
+}
+
+/// `owner/repo` from a GitHub remote URL (ssh, scp-like or https).
+fn repo_from_url(url: &str) -> Option<String> {
+    let (_, rest) = url.trim().split_once("github.com")?;
+    let rest = rest.trim_start_matches([':', '/']).trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, name) = rest.split_once('/')?;
+    (!owner.is_empty() && !name.is_empty() && !name.contains('/'))
+        .then(|| format!("{owner}/{name}"))
+}
+
+/// `url` of `[remote "origin"]` in a `.git/config`.
+fn origin_url(git_config: &str) -> Option<&str> {
+    let mut in_origin = false;
+    for line in git_config.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_origin = line == r#"[remote "origin"]"#;
+        } else if in_origin
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "url"
+        {
+            return Some(value.trim());
+        }
+    }
+    None
+}
+
+/// Main clone of `repo` among the direct children of `roots` (linked worktrees have a `.git` file, not a dir).
+fn find_clone(roots: &[String], repo: &str) -> Option<PathBuf> {
+    roots
+        .iter()
+        .filter_map(|root| std::fs::read_dir(expand(root)).ok())
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|dir| {
+            std::fs::read_to_string(dir.join(".git/config"))
+                .ok()
+                .and_then(|cfg| origin_url(&cfg).and_then(repo_from_url))
+                .is_some_and(|r| r.eq_ignore_ascii_case(repo))
+        })
+}
+
+/// Path of the worktree on `branch`, from `git worktree list --porcelain`.
+fn parse_worktrees(porcelain: &str, branch: &str) -> Option<String> {
+    let wanted = format!("branch refs/heads/{branch}");
+    porcelain.split("\n\n").find_map(|block| {
+        let path = block.lines().find_map(|l| l.strip_prefix("worktree "))?;
+        block.lines().any(|l| l == wanted).then(|| path.to_string())
+    })
+}
+
+async fn wt_installed() -> bool {
+    command("wt")
+        .arg("--version")
+        .output()
+        .await
+        .is_ok_and(|o| o.status.success())
+}
+
+pub async fn lookup(roots: &[String], repo: &str, branch: &str) -> Result<Worktree> {
+    let wt = wt_installed().await;
+    let Some(clone) = find_clone(roots, repo) else {
+        return Ok(Worktree {
+            wt,
+            ..Default::default()
+        });
+    };
+    let out = command("git")
+        .arg("-C")
+        .arg(&clone)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .await
+        .context("running git")?;
+    Ok(Worktree {
+        path: parse_worktrees(&String::from_utf8_lossy(&out.stdout), branch),
+        clone: Some(clone.display().to_string()),
+        wt,
+    })
+}
+
+/// `wt switch pr:<number>` in the repo's clone, running the user's worktrunk hooks.
+pub async fn create(roots: &[String], repo: &str, number: u64) -> Result<()> {
+    let clone = find_clone(roots, repo).with_context(|| format!("no local clone of {repo}"))?;
+    let out = command("wt")
+        .arg("-C")
+        .arg(&clone)
+        .args(["switch", &format!("pr:{number}"), "--no-cd", "--yes"])
+        .output()
+        .await
+        .context("running worktrunk (`wt`)")?;
+    if !out.status.success() {
+        bail!(
+            "wt switch failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// Opens `path` with a macOS app, e.g. `Cursor` or `Visual Studio Code`.
+pub async fn open_in(app: &str, path: &str) -> Result<()> {
+    let out = Command::new("open")
+        .args(["-a", app, path])
+        .output()
+        .await?;
+    if !out.status.success() {
+        bail!(
+            "open -a {app}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_urls() {
+        for url in [
+            "git@github.com:Acme/api.git",
+            "https://github.com/Acme/api",
+            "https://github.com/Acme/api.git/",
+            "ssh://git@github.com/Acme/api.git",
+        ] {
+            assert_eq!(repo_from_url(url).as_deref(), Some("Acme/api"), "{url}");
+        }
+        assert_eq!(repo_from_url("git@gitlab.com:acme/api.git"), None);
+        assert_eq!(repo_from_url("https://github.com/acme"), None);
+    }
+
+    #[test]
+    fn origin_from_git_config() {
+        let cfg = "[core]\n\turl = nope\n[remote \"upstream\"]\n\turl = git@github.com:up/x.git\n\
+                   [remote \"origin\"]\n\tfetch = +refs/heads/*\n\turl = git@github.com:me/x.git\n";
+        assert_eq!(origin_url(cfg), Some("git@github.com:me/x.git"));
+        assert_eq!(origin_url("[core]\n"), None);
+    }
+
+    #[test]
+    fn worktree_on_branch() {
+        let porcelain = "worktree /dev/ti\nHEAD abc\nbranch refs/heads/staging\n\n\
+                         worktree /dev/ti.feat\nHEAD def\nbranch refs/heads/feat/x\n\n\
+                         worktree /dev/ti.detached\nHEAD 123\ndetached\n";
+        assert_eq!(
+            parse_worktrees(porcelain, "feat/x").as_deref(),
+            Some("/dev/ti.feat")
+        );
+        assert_eq!(
+            parse_worktrees(porcelain, "staging").as_deref(),
+            Some("/dev/ti")
+        );
+        assert_eq!(parse_worktrees(porcelain, "feat"), None);
+    }
+
+    #[test]
+    fn finds_clone_by_origin() {
+        let root = std::env::temp_dir().join(format!("ghreviewer-clones-{}", std::process::id()));
+        let git = root.join("lens-ai-demo/.git");
+        std::fs::create_dir_all(&git).unwrap();
+        std::fs::write(
+            git.join("config"),
+            "[remote \"origin\"]\n\turl = git@github.com:ti/lens-ai.git\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("other")).unwrap();
+        let roots = [root.display().to_string()];
+        assert_eq!(
+            find_clone(&roots, "TI/lens-ai"),
+            Some(root.join("lens-ai-demo"))
+        );
+        assert_eq!(find_clone(&roots, "ti/other"), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// Real clones under ~/Documents/dev: `cargo test -- --ignored live_worktree --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_worktree() {
+        let roots = ["~/Documents/dev".to_string()];
+        let t = std::time::Instant::now();
+        let w = super::lookup(&roots, "thoughtindustries/ti", "feat/rbac-superadmin")
+            .await
+            .unwrap();
+        println!("{w:?} in {:?}", t.elapsed());
+        let w = super::lookup(&roots, "thoughtindustries/lens-ai", "nope")
+            .await
+            .unwrap();
+        println!("{w:?}");
+    }
+}

@@ -19,6 +19,7 @@ export type Action =
   | "hide"
   | "toggleHidden"
   | "toggleEmpty"
+  | "worktree"
   | "collapse";
 
 type Key = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
@@ -44,6 +45,7 @@ const SINGLE: Record<string, Action> = {
   x: "hide",
   H: "toggleHidden",
   e: "toggleEmpty",
+  w: "worktree",
   " ": "collapse",
 };
 
@@ -76,6 +78,7 @@ export const HELP: [string, string][] = [
   ["o", "open PR in browser"],
   ["Cmd-r", "refresh now"],
   ["u", "toggle unread"],
+  ["w", "open PR worktree in editor, or create it (worktrunk)"],
   ["p / x", "pin / hide repo (sidebar)"],
   ["H", "show hidden repos"],
   ["e", "hide repos without PRs (sidebar)"],

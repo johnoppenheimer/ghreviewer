@@ -11,6 +11,12 @@ pub const STARTER: &str = r##"# ghreviewer config. Edit by hand or from the app 
 poll_interval_secs = 300
 theme = "dark"
 
+# Local clones: direct children of these folders are matched to GitHub repos by their
+# `origin` remote. Used to show a PR's worktree and create one with worktrunk (`w`).
+clone_roots = ["~/Documents/dev"]
+# macOS app that opens a worktree folder (`open -a <editor> <folder>`).
+editor = "Cursor"
+
 # Each rule is a GitHub search query (`is:pr` is added for you).
 # PRs matching any rule land in the inbox, tagged with the rule name.
 [[rules]]
@@ -68,6 +74,8 @@ font_size = "12px"
 pub struct Config {
     pub poll_interval_secs: u64,
     pub theme: String,
+    pub clone_roots: Vec<String>,
+    pub editor: String,
     pub rules: Vec<Rule>,
     pub filters: Filters,
     pub repos: RepoFlags,
@@ -79,6 +87,8 @@ impl Default for Config {
         Self {
             poll_interval_secs: 300,
             theme: "dark".into(),
+            clone_roots: vec!["~/Documents/dev".into()],
+            editor: "Cursor".into(),
             rules: vec![],
             filters: Filters::default(),
             repos: RepoFlags::default(),
@@ -218,6 +228,10 @@ mod tests {
         assert_eq!(c.rules.len(), 2);
         assert_eq!(c.filters.exclude_authors, vec!["*[bot]"]);
         assert!(c.themes.contains_key("dark") && c.themes.contains_key("light"));
+        assert_eq!(c.editor, "Cursor");
+        // Configs written before these keys existed get the defaults.
+        let old: Config = toml::from_str("theme = \"dark\"").unwrap();
+        assert_eq!(old.clone_roots, vec!["~/Documents/dev"]);
     }
 
     #[test]

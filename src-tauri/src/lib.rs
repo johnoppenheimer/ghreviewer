@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod github;
+mod local;
 mod sync;
 
 use anyhow::Context;
@@ -251,6 +252,34 @@ fn open_config(st: State<'_, Arc<AppState>>) -> Res<()> {
     Ok(())
 }
 
+fn clone_roots(st: &AppState) -> Vec<String> {
+    st.cfg.read().unwrap().clone_roots.clone()
+}
+
+#[tauri::command]
+async fn get_worktree(
+    st: State<'_, Arc<AppState>>,
+    repo: String,
+    branch: String,
+) -> Res<local::Worktree> {
+    local::lookup(&clone_roots(&st), &repo, &branch)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn create_worktree(st: State<'_, Arc<AppState>>, repo: String, number: u64) -> Res<()> {
+    local::create(&clone_roots(&st), &repo, number)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn open_in_editor(st: State<'_, Arc<AppState>>, path: String) -> Res<()> {
+    let editor = st.cfg.read().unwrap().editor.clone();
+    local::open_in(&editor, &path).await.map_err(err)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -307,6 +336,9 @@ pub fn run() {
             save_settings,
             set_repo_flag,
             open_config,
+            get_worktree,
+            create_worktree,
+            open_in_editor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

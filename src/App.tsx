@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
@@ -172,6 +172,49 @@ export default function App() {
   const toggleUnread = () => selected && fire(api.setUnread(selected.id, !selected.unread));
   const openSelected = () => selected && fire(openUrl(selected.url));
 
+  // Local worktree of the PR branch; cheap (`git worktree list`), so re-checked on every visit.
+  const branch = detail.data?.id === selected?.id ? detail.data?.headRefName : undefined;
+  const wt = useQuery({
+    queryKey: ["worktree", selected?.repo, branch],
+    queryFn: () => api.worktree(selected!.repo, branch!),
+    enabled: !!selected && !!branch,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  }).data;
+  const createWt = useMutation({
+    mutationFn: (pr: PrSummary) => api.createWorktree(pr.repo, pr.number),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["worktree"] }),
+    onError: (e) => setUiError(String(e)),
+  });
+  const creatingWt = createWt.isPending && createWt.variables?.id === selected?.id;
+  const canCreateWt = !!(selected && wt?.clone && wt.wt && !wt.path && !createWt.isPending);
+  const worktreeAction = () => {
+    if (wt?.path) fire(api.openInEditor(wt.path));
+    else if (canCreateWt) createWt.mutate(selected!);
+  };
+  let wtHead = null;
+  if (wt?.path)
+    wtHead = (
+      <button
+        className="head-btn"
+        title={`${wt.path}\nOpen in ${config?.editor} (w)`}
+        onClick={worktreeAction}
+      >
+        {wt.path.split("/").pop()}
+      </button>
+    );
+  else if (creatingWt) wtHead = <span>creating worktree…</span>;
+  else if (canCreateWt)
+    wtHead = (
+      <button
+        className="head-btn"
+        title={`wt switch pr:${selected?.number} in ${wt?.clone}`}
+        onClick={worktreeAction}
+      >
+        + worktree (w)
+      </button>
+    );
+
   const run = (action: Action) => {
     const pane = paneRef.current;
     switch (action) {
@@ -215,6 +258,8 @@ export default function App() {
         );
       case "toggleHidden":
         return setShowHidden((v) => !v);
+      case "worktree":
+        return worktreeAction();
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
       case "collapse":
@@ -261,6 +306,8 @@ export default function App() {
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "open PR in browser", run: openSelected },
     { label: "toggle unread", run: toggleUnread },
+    ...(wt?.path ? [{ label: "open worktree in editor", run: worktreeAction }] : []),
+    ...(canCreateWt ? [{ label: "create worktree", run: worktreeAction }] : []),
     {
       label: showHidden ? "hide hidden repos" : "show hidden repos",
       run: () => setShowHidden((v) => !v),
@@ -325,6 +372,7 @@ export default function App() {
         focused={focus === 2}
         now={now}
         paneRef={paneRef}
+        headRight={wtHead}
         onFocus={() => setFocus(2)}
         onLink={(url) => fire(openUrl(url))}
       />

@@ -34,11 +34,15 @@ export type Filters = { exclude_authors: string[]; exclude_repos: string[]; hide
 export type Config = {
   poll_interval_secs: number;
   theme: string;
+  clone_roots: string[];
+  editor: string;
   rules: Rule[];
   filters: Filters;
   repos: { pinned: string[]; hidden: string[] };
   themes: Record<string, Record<string, string>>;
 };
+/** Local clone + worktree on the PR branch; `wt` is whether worktrunk is installed. */
+export type Worktree = { clone: string | null; path: string | null; wt: boolean };
 export type Settings = Pick<Config, "poll_interval_secs" | "theme" | "rules" | "filters">;
 
 // PR detail, in the shape of the GraphQL query in src-tauri/src/sync.rs.
@@ -138,4 +142,8 @@ export const api = {
   setRepoFlag: (repo: string, flag: "pinned" | "hidden", on: boolean) =>
     invoke<void>("set_repo_flag", { repo, flag, on }),
   openConfig: () => invoke<void>("open_config"),
+  worktree: (repo: string, branch: string) => invoke<Worktree>("get_worktree", { repo, branch }),
+  createWorktree: (repo: string, number: number) =>
+    invoke<void>("create_worktree", { repo, number }),
+  openInEditor: (path: string) => invoke<void>("open_in_editor", { path }),
 };
