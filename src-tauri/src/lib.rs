@@ -129,7 +129,7 @@ async fn prefetch_details(st: &Arc<AppState>) {
     };
     let stale: Vec<String> = prs
         .into_iter()
-        .filter(|pr| pr.unread && cached.get(&pr.id) != Some(&pr.updated_at))
+        .filter(|pr| pr.unread && !pr.context && cached.get(&pr.id) != Some(&pr.updated_at))
         .take(PREFETCH_MAX)
         .map(|pr| pr.id)
         .collect();

@@ -107,6 +107,57 @@ export function inScope(pr: PrSummary, key: string): boolean {
   return true;
 }
 
+export type PrRow = { pr: PrSummary; depth: number; dim: boolean };
+
+/**
+ * `all` (newest first) grouped into stacks, a PR sitting under the one whose head branch it merges
+ * into. Stacks come in order of their newest shown PR. Ancestors of a shown PR come along dimmed.
+ */
+export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): PrRow[] {
+  const byHead = new Map(all.flatMap((p) => (p.headRef ? [[`${p.repo}:${p.headRef}`, p]] : [])));
+  const parentOf = (p: PrSummary) => {
+    const q = byHead.get(`${p.repo}:${p.baseRef}`);
+    return q === p ? undefined : q;
+  };
+  const visible = all.filter(shown);
+  const inTree = new Set(visible);
+  const dim = new Set<PrSummary>();
+  for (const p of visible)
+    for (let q = parentOf(p); q && !inTree.has(q); q = parentOf(q)) {
+      inTree.add(q);
+      dim.add(q);
+    }
+  const kids = new Map<PrSummary, PrSummary[]>();
+  for (const p of all) {
+    const q = inTree.has(p) ? parentOf(p) : undefined;
+    if (q && inTree.has(q)) kids.set(q, [...(kids.get(q) ?? []), p]);
+  }
+  const rows: PrRow[] = [];
+  const done = new Set<PrSummary>();
+  const emit = (p: PrSummary, depth: number) => {
+    if (done.has(p)) return;
+    done.add(p);
+    rows.push({ pr: p, depth, dim: dim.has(p) });
+    for (const k of kids.get(p) ?? []) emit(k, depth + 1);
+  };
+  for (const p of visible) {
+    let root = p;
+    const climbed = new Set([p]);
+    // `climbed` stops at a branch cycle (a → b → a) instead of looping.
+    for (let q = parentOf(p); q && inTree.has(q) && !climbed.has(q); q = parentOf(q)) {
+      climbed.add(q);
+      root = q;
+    }
+    const start = rows.length;
+    emit(root, 0);
+    // A stack without branches reads fine flat (each row on the one above) and stays narrow.
+    const tree = rows.slice(start);
+    if (tree.every((r) => (kids.get(r.pr)?.length ?? 0) <= 1))
+      for (const r of tree) r.depth = Math.min(r.depth, 1);
+  }
+  return rows;
+}
+
 export function matchesFilter(pr: PrSummary, filter: string): boolean {
   const f = filter.toLowerCase();
   return !f || `${pr.repo}#${pr.number} ${pr.title} ${pr.author}`.toLowerCase().includes(f);

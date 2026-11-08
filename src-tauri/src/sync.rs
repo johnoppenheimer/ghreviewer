@@ -2,7 +2,7 @@ use crate::{config::Rule, github::Github};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +29,15 @@ pub struct PrSummary {
     pub rules: Vec<String>,
     #[serde(default)]
     pub unread: bool,
+    /// Branch the PR merges into.
+    #[serde(default)]
+    pub base_ref: String,
+    /// Head branch, `None` when it lives in a fork (so it can't be a stack parent).
+    #[serde(default)]
+    pub head_ref: Option<String>,
+    /// Not in the inbox itself: a stack parent of an inbox PR, or dropped by the local filters.
+    #[serde(default)]
+    pub context: bool,
 }
 
 #[derive(Deserialize)]
@@ -102,37 +111,59 @@ const ACTIVITY_TYPES: &str = "ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_C
     REVIEW_REQUESTED_EVENT, READY_FOR_REVIEW_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, \
     MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT";
 
-fn search_query() -> String {
+fn pr_fields() -> String {
     format!(
         r#"
-query($q: String!, $after: String) {{
-  rateLimit {{ remaining }}
-  search(type: ISSUE, query: $q, first: 50, after: $after) {{
-    pageInfo {{ hasNextPage endCursor }}
+fragment PrFields on PullRequest {{
+  id number title url isDraft state createdAt updatedAt reviewDecision
+  baseRefName headRefName isCrossRepository
+  author {{ login }}
+  repository {{ nameWithOwner defaultBranchRef {{ name }} }}
+  commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }}
+  timelineItems(last: 10, itemTypes: [{ACTIVITY_TYPES}]) {{
     nodes {{
-      ... on PullRequest {{
-        id number title url isDraft state createdAt updatedAt reviewDecision
-        author {{ login }}
-        repository {{ nameWithOwner }}
-        commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }}
-        timelineItems(last: 10, itemTypes: [{ACTIVITY_TYPES}]) {{
-          nodes {{
-            ... on IssueComment {{ createdAt author {{ login }} }}
-            ... on PullRequestReview {{ createdAt author {{ login }} }}
-            ... on PullRequestCommit {{ commit {{ committedDate author {{ user {{ login }} }} }} }}
-            ... on ReviewRequestedEvent {{ createdAt actor {{ login }} }}
-            ... on ReadyForReviewEvent {{ createdAt actor {{ login }} }}
-            ... on HeadRefForcePushedEvent {{ createdAt actor {{ login }} }}
-            ... on MergedEvent {{ createdAt actor {{ login }} }}
-            ... on ClosedEvent {{ createdAt actor {{ login }} }}
-            ... on ReopenedEvent {{ createdAt actor {{ login }} }}
-          }}
-        }}
-      }}
+      ... on IssueComment {{ createdAt author {{ login }} }}
+      ... on PullRequestReview {{ createdAt author {{ login }} }}
+      ... on PullRequestCommit {{ commit {{ committedDate author {{ user {{ login }} }} }} }}
+      ... on ReviewRequestedEvent {{ createdAt actor {{ login }} }}
+      ... on ReadyForReviewEvent {{ createdAt actor {{ login }} }}
+      ... on HeadRefForcePushedEvent {{ createdAt actor {{ login }} }}
+      ... on MergedEvent {{ createdAt actor {{ login }} }}
+      ... on ClosedEvent {{ createdAt actor {{ login }} }}
+      ... on ReopenedEvent {{ createdAt actor {{ login }} }}
     }}
   }}
 }}"#
     )
+}
+
+fn search_query() -> String {
+    r#"
+query($q: String!, $after: String) {
+  rateLimit { remaining }
+  search(type: ISSUE, query: $q, first: 50, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes { ...PrFields }
+  }
+}"#
+    .to_string()
+        + &pr_fields()
+}
+
+/// Open PRs whose head is each `(repo, branch)`, aliased `p0`, `p1`, ...
+fn heads_query(n: usize) -> String {
+    let vars: Vec<String> = (0..n)
+        .map(|i| format!("$o{i}: String!, $n{i}: String!, $h{i}: String!"))
+        .collect();
+    let body: Vec<String> = (0..n)
+        .map(|i| {
+            format!(
+                "p{i}: repository(owner: $o{i}, name: $n{i}) {{ \
+                 pullRequests(headRefName: $h{i}, states: [OPEN], first: 5) {{ nodes {{ ...PrFields }} }} }}"
+            )
+        })
+        .collect();
+    format!("query({}) {{\n{}\n}}", vars.join(", "), body.join("\n")) + &pr_fields()
 }
 
 #[derive(Deserialize)]
@@ -147,6 +178,9 @@ struct SearchPr {
     created_at: String,
     updated_at: String,
     review_decision: Option<String>,
+    base_ref_name: String,
+    head_ref_name: String,
+    is_cross_repository: bool,
     author: Option<Login>,
     repository: SearchRepo,
     commits: Nodes<CommitNode>,
@@ -157,6 +191,12 @@ struct SearchPr {
 #[serde(rename_all = "camelCase")]
 struct SearchRepo {
     name_with_owner: String,
+    default_branch_ref: Option<Name>,
+}
+
+#[derive(Deserialize)]
+struct Name {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -262,7 +302,82 @@ fn summarize(pr: SearchPr, viewer: &str) -> PrSummary {
         last_others_activity_at,
         rules: vec![],
         unread: false,
+        base_ref: pr.base_ref_name,
+        head_ref: (!pr.is_cross_repository).then_some(pr.head_ref_name),
+        context: false,
     }
+}
+
+/// `(repo, base)` of PRs whose base is another branch than the default one and no known PR's head:
+/// the stack parents still to look up.
+fn missing_parents(
+    prs: &HashMap<String, PrSummary>,
+    defaults: &HashMap<String, String>,
+    looked_up: &HashSet<(String, String)>,
+) -> Vec<(String, String)> {
+    let heads: HashSet<(&str, &str)> = prs
+        .values()
+        .filter_map(|p| Some((p.repo.as_str(), p.head_ref.as_deref()?)))
+        .collect();
+    let mut missing: Vec<(String, String)> = prs
+        .values()
+        .filter(|p| defaults.get(&p.repo) != Some(&p.base_ref))
+        .filter(|p| !heads.contains(&(p.repo.as_str(), p.base_ref.as_str())))
+        .map(|p| (p.repo.clone(), p.base_ref.clone()))
+        .filter(|k| !looked_up.contains(k))
+        .collect();
+    missing.sort();
+    missing.dedup();
+    missing
+}
+
+const STACK_DEPTH: usize = 5;
+
+/// Adds the open PRs that inbox PRs are stacked on, as `context`, up to `STACK_DEPTH` levels up.
+// shortcut: one aliased query per level with every missing parent, chunk it if stacks get huge.
+async fn fetch_parents(
+    gh: &Github,
+    viewer: &str,
+    acc: &mut HashMap<String, PrSummary>,
+    defaults: &mut HashMap<String, String>,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RepoPrs {
+        pull_requests: Nodes<SearchPr>,
+    }
+    let mut looked_up = HashSet::new();
+    for _ in 0..STACK_DEPTH {
+        let missing = missing_parents(acc, defaults, &looked_up);
+        if missing.is_empty() {
+            break;
+        }
+        let mut vars = serde_json::Map::new();
+        for (i, (repo, base)) in missing.iter().enumerate() {
+            let (owner, name) = repo.split_once('/').unwrap_or_default();
+            vars.insert(format!("o{i}"), json!(owner));
+            vars.insert(format!("n{i}"), json!(name));
+            vars.insert(format!("h{i}"), json!(base));
+        }
+        let d: HashMap<String, Option<RepoPrs>> = gh
+            .query(&heads_query(missing.len()), Value::Object(vars))
+            .await?;
+        for repo in d.into_values().flatten() {
+            let parent = repo.pull_requests.nodes.into_iter().flatten();
+            for pr in parent.filter(|p| !p.is_cross_repository).take(1) {
+                if let Some(b) = &pr.repository.default_branch_ref {
+                    defaults.insert(pr.repository.name_with_owner.clone(), b.name.clone());
+                }
+                let pr = PrSummary {
+                    context: true,
+                    ..summarize(pr, viewer)
+                };
+                acc.entry(pr.id.clone()).or_insert(pr);
+            }
+        }
+        looked_up.extend(missing);
+    }
+    Ok(())
 }
 
 /// Adds `pr` to `acc`, deduping by id and recording every rule that matched it.
@@ -292,6 +407,7 @@ pub async fn fetch_inbox(
 
     let query = search_query();
     let mut acc = HashMap::new();
+    let mut defaults = HashMap::new();
     let mut remaining = None;
     for rule in rules.iter().filter(|r| !r.query.trim().is_empty()) {
         let q = format!("{} is:pr", rule.query);
@@ -300,6 +416,9 @@ pub async fn fetch_inbox(
             let d: Data = gh.query(&query, json!({ "q": q, "after": after })).await?;
             remaining = d.rate_limit.map(|r| r.remaining).or(remaining);
             for pr in d.search.nodes.into_iter().flatten() {
+                if let Some(b) = &pr.repository.default_branch_ref {
+                    defaults.insert(pr.repository.name_with_owner.clone(), b.name.clone());
+                }
                 merge(&mut acc, summarize(pr, viewer), &rule.name);
             }
             if !d.search.page_info.has_next_page {
@@ -308,6 +427,7 @@ pub async fn fetch_inbox(
             after = d.search.page_info.end_cursor;
         }
     }
+    fetch_parents(gh, viewer, &mut acc, &mut defaults).await?;
     Ok((acc.into_values().collect(), remaining))
 }
 
@@ -410,6 +530,7 @@ mod tests {
         serde_json::from_value(json!({
             "id": "PR_1", "number": 1, "title": "t", "url": "u", "isDraft": false, "state": "OPEN",
             "createdAt": created, "updatedAt": created, "reviewDecision": null,
+            "baseRefName": "main", "headRefName": "feat", "isCrossRepository": false,
             "author": { "login": author }, "repository": { "nameWithOwner": "o/r" },
             "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] },
             "timelineItems": { "nodes": timeline },
@@ -459,9 +580,10 @@ mod tests {
         }];
         let (prs, rate) = fetch_inbox(&gh, &rules, &me).await.unwrap();
         println!(
-            "viewer={me} repos={} prs={} rate={rate:?}",
+            "viewer={me} repos={} prs={} parents={} rate={rate:?}",
             repos.len(),
-            prs.len()
+            prs.len(),
+            prs.iter().filter(|p| p.context).count()
         );
         if let Some(pr) = prs.first() {
             let d = fetch_detail(&gh, &pr.id).await.unwrap();
@@ -496,6 +618,29 @@ mod tests {
         assert_eq!(ids, ["a", "b", "c"]);
         assert_eq!(pr["timelineItems"]["pageInfo"]["hasNextPage"], json!(false));
         assert_eq!(pr["id"], json!("PR_1"));
+    }
+
+    #[test]
+    fn missing_parents_skips_default_known_and_looked_up() {
+        let mk = |id: &str, repo: &str, base: &str, head: Option<&str>| {
+            let mut p = summarize(pr("bob", "2026-01-01T00:00:00Z", json!([])), "me");
+            (p.id, p.repo, p.base_ref, p.head_ref) =
+                (id.into(), repo.into(), base.into(), head.map(Into::into));
+            (id.to_string(), p)
+        };
+        let prs = HashMap::from([
+            mk("1", "o/r", "main", Some("a")),
+            mk("2", "o/r", "a", Some("b")),
+            mk("3", "o/r", "x", Some("c")),
+            mk("4", "o/r", "y", Some("d")),
+            mk("5", "o/q", "x", None),
+        ]);
+        let defaults = HashMap::from([("o/r".to_string(), "main".to_string())]);
+        let looked_up = HashSet::from([("o/r".to_string(), "y".to_string())]);
+        assert_eq!(
+            missing_parents(&prs, &defaults, &looked_up),
+            vec![("o/q".into(), "x".into()), ("o/r".into(), "x".into())]
+        );
     }
 
     #[test]

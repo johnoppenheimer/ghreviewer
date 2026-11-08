@@ -325,8 +325,12 @@ a:hover {
 .pr-row {
   flex-direction: column;
   gap: 0;
-  padding: 6px 10px;
+  padding: 6px 10px 6px calc(10px + var(--depth, 0) * 2ch);
   border-bottom: 1px solid var(--border);
+}
+/* Stacked under a PR that isn't in the inbox itself. */
+.pr-row.stack-parent {
+  opacity: 0.45;
 }
 .pr-row .line {
   display: flex;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { PrSummary } from "./api";
 import { createKeymap } from "./keys";
-import { inScope, relTime, sidebarItems, step } from "./model";
+import { inScope, relTime, sidebarItems, stackRows, step } from "./model";
 
 const key = (
   k: string,
@@ -27,7 +27,7 @@ test("keymap decodes vim keys and gg", () => {
   expect(km(key("d", { ctrlKey: true }))).toBe("pageDown");
   expect(km(key("Tab", { shiftKey: true }))).toBe("left");
   expect(km(key("r", { metaKey: true }))).toBe("refresh");
-  expect(km(key("r"))).toBeNull();
+  expect(km(key("r"))).toBe("runPrompt");
   expect(km(key("c", { metaKey: true }))).toBeNull();
 });
 
@@ -47,6 +47,9 @@ const pr = (repo: string, unread = false): PrSummary => ({
   lastOthersActivityAt: null,
   rules: [],
   unread,
+  baseRef: "main",
+  headRef: null,
+  context: false,
 });
 
 test("sidebar orders orgs and repos, counts, hides, filters", () => {
@@ -108,4 +111,40 @@ test("scope, step, relTime", () => {
   expect(relTime("2026-01-09T23:59:30Z", now)).toBe("now");
   expect(relTime("2026-01-09T21:00:00Z", now)).toBe("3h");
   expect(relTime("2026-01-07T00:00:00Z", now)).toBe("3d");
+});
+
+test("stackRows nests stacks and dims ancestors that aren't shown", () => {
+  const mk = (n: number, base: string, head: string | null, extra: Partial<PrSummary> = {}) =>
+    ({ id: `${n}`, number: n, repo: "o/r", baseRef: base, headRef: head, ...extra }) as PrSummary;
+  // Newest first: 4 is on 3, which is on 2 (not mine); 5 is alone; 6/7 form a cycle.
+  const all = [
+    mk(4, "b3", "b4"),
+    mk(5, "main", "b5"),
+    mk(3, "b2", "b3", { context: true }),
+    mk(9, "b4", null, { context: true }),
+    mk(2, "main", "b2", { context: true }),
+    mk(6, "b7", "b6"),
+    mk(7, "b6", "b7"),
+    mk(8, "b4", "b8", { repo: "o/other" }),
+    // A branching stack keeps its full nesting.
+    mk(20, "main", "c20", { repo: "o/b" }),
+    mk(21, "c20", "c21", { repo: "o/b" }),
+    mk(22, "c20", "c22", { repo: "o/b" }),
+    mk(23, "c21", "c23", { repo: "o/b" }),
+  ];
+  const rows = stackRows(all, (p) => !p.context);
+  expect(rows.map((r) => [r.pr.number, r.depth, r.dim])).toEqual([
+    [2, 0, true],
+    [3, 1, true],
+    [4, 1, false],
+    [5, 0, false],
+    [7, 0, false],
+    [6, 1, false],
+    [8, 0, false],
+    [20, 0, false],
+    [21, 1, false],
+    [23, 2, false],
+    [22, 1, false],
+  ]);
+  expect(stackRows(all, (p) => p.number === 5).map((r) => r.pr.number)).toEqual([5]);
 });

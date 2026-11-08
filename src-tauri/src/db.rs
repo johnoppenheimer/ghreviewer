@@ -77,7 +77,7 @@ impl Db {
         Ok(())
     }
 
-    /// Inbox after local filters, with unread computed, newest first.
+    /// Inbox with unread computed, newest first. PRs the local filters drop are kept as `context`.
     pub fn inbox(&self, filters: &Filters) -> Result<Vec<PrSummary>> {
         let conn = self.conn();
         let mut stmt = conn.prepare("SELECT id, seen_activity_at, forced_unread FROM pr_views")?;
@@ -89,9 +89,7 @@ impl Db {
         let mut prs = Vec::new();
         for json in rows {
             let mut pr: PrSummary = serde_json::from_str(&json?)?;
-            if !passes(filters, &pr) {
-                continue;
-            }
+            pr.context |= !passes(filters, &pr);
             let (seen, forced) = views.get(&pr.id).cloned().unwrap_or_default();
             pr.unread = is_unread(
                 pr.last_others_activity_at.as_deref(),
@@ -261,6 +259,9 @@ mod tests {
             last_others_activity_at: last.map(Into::into),
             rules: vec!["r".into()],
             unread: false,
+            base_ref: "main".into(),
+            head_ref: Some(id.into()),
+            context: false,
         }
     }
 
@@ -309,14 +310,19 @@ mod tests {
             exclude_repos: vec![],
             hide_drafts: false,
         };
-        let ids = |v: Vec<PrSummary>| v.into_iter().map(|p| (p.id, p.unread)).collect::<Vec<_>>();
+        let ids = |v: Vec<PrSummary>| {
+            v.into_iter()
+                .filter(|p| !p.context)
+                .map(|p| (p.id, p.unread))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
             ids(db.inbox(&filters).unwrap()),
             vec![("c".into(), false), ("a".into(), true)]
         );
 
         db.set_unread("a", false).unwrap();
-        assert!(!db.inbox(&filters).unwrap().iter().any(|p| p.unread));
+        assert!(!ids(db.inbox(&filters).unwrap()).iter().any(|p| p.1));
         db.set_unread("a", true).unwrap();
         assert!(
             db.inbox(&filters)
@@ -338,7 +344,7 @@ mod tests {
             exclude_repos: vec!["o/*".into()],
             ..filters
         };
-        assert!(db.inbox(&drafts).unwrap().is_empty());
+        assert!(ids(db.inbox(&drafts).unwrap()).is_empty());
     }
 
     #[test]

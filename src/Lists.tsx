@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
-import type { PrSummary, Run } from "./api";
-import { REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
+import { type CSSProperties, useEffect, useRef } from "react";
+import type { Run } from "./api";
+import { type PrRow, REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
 import { PixelSpinner } from "./RunView";
 
 type FilterProps = {
@@ -137,7 +137,7 @@ export function Sidebar(
 export function Inbox(
   props: FilterProps & {
     title: string;
-    prs: PrSummary[];
+    rows: PrRow[];
     selected: string | null;
     focused: boolean;
     empty: string;
@@ -145,30 +145,34 @@ export function Inbox(
     onSelect: (id: string) => void;
   },
 ) {
-  const { title, prs, selected, focused, empty, now, onSelect } = props;
+  const { title, rows, selected, focused, empty, now, onSelect } = props;
   const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head" data-tauri-drag-region>
         <span className="grow">{title}</span>
-        <span>{prs.length}</span>
+        <span>{rows.filter((r) => !r.dim).length}</span>
       </div>
       <FilterInput {...props} />
       <div className="scroll" ref={scrollRef}>
-        {prs.length === 0 && <div className="empty">{empty}</div>}
-        {prs.map((pr) => {
+        {rows.length === 0 && <div className="empty">{empty}</div>}
+        {rows.map(({ pr, depth, dim }) => {
           const sel = pr.id === selected;
+          const unread = pr.unread && !dim;
           const [glyph, glyphCls] = checkGlyph(pr.checks);
           const review = pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] : null;
           return (
             <div
               key={pr.id}
-              className={`row pr-row ${sel ? "selected" : ""} ${pr.unread ? "unread" : ""}`}
+              className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""}`}
+              style={{ "--depth": depth } as CSSProperties}
+              title={dim ? "Stack parent, not in your inbox" : undefined}
               onClick={() => onSelect(pr.id)}
             >
               <div className="line">
-                <span className="dot">{pr.unread ? "●" : ""}</span>
+                <span className="dot">{unread ? "●" : ""}</span>
                 <span className="grow dim">
+                  {depth > 0 && "↳ "}
                   {pr.repo}#{pr.number}
                 </span>
                 <span className="dim">{relTime(pr.updatedAt, now)}</span>

@@ -18,6 +18,11 @@ export type PrSummary = {
   lastOthersActivityAt: string | null;
   rules: string[];
   unread: boolean;
+  baseRef: string;
+  /** Null when the head branch is in a fork. */
+  headRef: string | null;
+  /** Not in the inbox itself: a stack parent of an inbox PR, or dropped by the local filters. */
+  context: boolean;
 };
 
 export type Status = {

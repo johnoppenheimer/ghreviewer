@@ -5,7 +5,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { type PrDetail, type PrSummary, type Repo, type Run, api } from "./api";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
-import { inScope, matchesFilter, relTime, runItems, sidebarItems, step } from "./model";
+import { inScope, matchesFilter, relTime, runItems, sidebarItems, stackRows, step } from "./model";
 import { type Command, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
 import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
@@ -137,11 +137,13 @@ export default function App() {
       style.setProperty(`--${k}`, v);
   }, [config]);
 
+  // The inbox proper; `context` PRs only show as greyed stack parents.
+  const mine = useMemo(() => inbox.filter((pr) => !pr.context), [inbox]);
   const items = useMemo(
     () => [
       ...sidebarItems({
         repos: repos.map((r) => r.nameWithOwner),
-        inbox,
+        inbox: mine,
         pinned: config?.repos.pinned ?? [],
         hidden: config?.repos.hidden ?? [],
         collapsed,
@@ -151,17 +153,22 @@ export default function App() {
       }),
       ...runItems(activeRuns),
     ],
-    [activeRuns, repos, inbox, config, collapsed, showHidden, onlyWithPrs, filters],
+    [activeRuns, repos, mine, config, collapsed, showHidden, onlyWithPrs, filters],
   );
   const sideIdx = Math.max(
     0,
     items.findIndex((i) => i.key === sideKey),
   );
   const side = items[sideIdx];
-  const prs = useMemo(
-    () => inbox.filter((pr) => inScope(pr, side.key) && matchesFilter(pr, filters[1])),
+  const rows = useMemo(
+    () =>
+      stackRows(
+        inbox,
+        (pr) => !pr.context && inScope(pr, side.key) && matchesFilter(pr, filters[1]),
+      ),
     [inbox, side.key, filters],
   );
+  const prs = useMemo(() => rows.map((r) => r.pr), [rows]);
   const prIdx = Math.max(
     0,
     prs.findIndex((p) => p.id === prId),
@@ -457,9 +464,9 @@ export default function App() {
 
   const scopeTitle = side.kind === "org" ? side.org : side.kind === "repo" ? side.repo : "Inbox";
   let empty = "Nothing here.";
-  if (status?.error && !inbox.length) empty = status.error;
+  if (status?.error && !mine.length) empty = status.error;
   else if (!config?.rules.length) empty = "No rules yet. Press : then settings.";
-  else if (status?.syncing && !inbox.length) empty = "Syncing…";
+  else if (status?.syncing && !mine.length) empty = "Syncing…";
 
   const error = uiError ?? status?.configError ?? status?.error;
   const synced = status?.lastSyncMs ? relTime(status.lastSyncMs, now) : null;
@@ -485,7 +492,7 @@ export default function App() {
       />
       <Inbox
         title={scopeTitle}
-        prs={prs}
+        rows={rows}
         selected={selected?.id ?? null}
         focused={focus === 1}
         empty={empty}
