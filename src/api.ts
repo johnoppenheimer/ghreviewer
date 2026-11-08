@@ -51,8 +51,12 @@ export type Prompt = {
 /** Latest run of a prompt on a PR (src-tauri/src/agent.rs). */
 export type Run = {
   prId: string;
+  repo: string;
+  number: number;
   prompt: string;
   harness: Prompt["harness"];
+  /** Finished result looked at; until then the sidebar lists the run. */
+  seen: boolean;
   status: "running" | "done" | "error" | "cancelled" | "interrupted";
   startedAt: number;
   finishedAt: number | null;
@@ -173,6 +177,8 @@ export const api = {
   openWorktree: (opener: number, path: string, pr: PrSummary, branch: string) =>
     invoke<void>("open_worktree", { opener, path, repo: pr.repo, branch, number: pr.number }),
   runs: (prId: string) => invoke<Run[]>("get_runs", { prId }),
+  activeRuns: () => invoke<Run[]>("list_active_runs"),
+  markRunSeen: (prId: string, prompt: string) => invoke<void>("mark_run_seen", { prId, prompt }),
   runPrompt: (prompt: string, pr: PrDetail) =>
     invoke<void>("run_prompt", {
       prompt,

@@ -2,16 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { type PrDetail, type PrSummary, type Repo, api } from "./api";
+import { type PrDetail, type PrSummary, type Repo, type Run, api } from "./api";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
-import { inScope, matchesFilter, relTime, sidebarItems, step } from "./model";
+import { inScope, matchesFilter, relTime, runItems, sidebarItems, step } from "./model";
 import { type Command, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
 import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
 const NO_REPOS: Repo[] = [];
 const NO_PRS: PrSummary[] = [];
+const NO_RUNS: Run[] = [];
 
 /** useState that survives relaunches (webview localStorage). */
 function usePersisted<T>(key: string, initial: T) {
@@ -88,6 +89,8 @@ export default function App() {
   const config = useQuery({ queryKey: ["config"], queryFn: api.config }).data;
   const repos = useQuery({ queryKey: ["repos"], queryFn: api.repos }).data ?? NO_REPOS;
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: api.inbox }).data ?? NO_PRS;
+  const activeRuns =
+    useQuery({ queryKey: ["activeRuns"], queryFn: api.activeRuns }).data ?? NO_RUNS;
 
   const [focus, setFocus] = useState(1);
   const [sideKey, setSideKey] = useState("all");
@@ -117,7 +120,10 @@ export default function App() {
       listen<{ id: string; detail: PrDetail }>("pr-updated", (e) =>
         qc.setQueriesData({ queryKey: ["pr", e.payload.id] }, e.payload.detail),
       ),
-      listen<string>("run-updated", (e) => qc.invalidateQueries({ queryKey: ["runs", e.payload] })),
+      listen<string>("run-updated", (e) => {
+        qc.invalidateQueries({ queryKey: ["runs", e.payload] });
+        qc.invalidateQueries({ queryKey: ["activeRuns"] });
+      }),
     ];
     return () => unlisten.forEach((p) => p.then((f) => f()));
   }, [qc]);
@@ -132,8 +138,9 @@ export default function App() {
   }, [config]);
 
   const items = useMemo(
-    () =>
-      sidebarItems({
+    () => [
+      ...runItems(activeRuns),
+      ...sidebarItems({
         repos: repos.map((r) => r.nameWithOwner),
         inbox,
         pinned: config?.repos.pinned ?? [],
@@ -143,7 +150,8 @@ export default function App() {
         onlyWithPrs,
         filter: filters[0],
       }),
-    [repos, inbox, config, collapsed, showHidden, onlyWithPrs, filters],
+    ],
+    [activeRuns, repos, inbox, config, collapsed, showHidden, onlyWithPrs, filters],
   );
   const sideIdx = Math.max(
     0,
@@ -266,6 +274,24 @@ export default function App() {
     setTabName(tabNames[(i + tabNames.length) % tabNames.length]);
     paneRef.current?.scrollTo({ top: 0 });
   };
+  // Jumps from a sidebar run to its PR's tab, which marks it read.
+  const openRun = (run: Run) => {
+    const target = inbox.find((p) => p.id === run.prId);
+    // PR left the inbox or the prompt left the config: nothing to show, just clear it.
+    if (!target || !prompts.some((p) => p.name === run.prompt))
+      return fire(api.markRunSeen(run.prId, run.prompt));
+    if (!matchesFilter(target, filters[1])) setFilter(1, "");
+    setSideKey("all");
+    setPrId(run.prId);
+    setTabName(run.prompt);
+    setFocus(2);
+  };
+  // A finished run counts as read once its tab is on screen.
+  const tabRun = tabPrompt && runOf(tabPrompt.name);
+  const readable = !!pr && !!tabRun && !tabRun.seen && tabRun.status !== "running";
+  useEffect(() => {
+    if (readable && tabRun) fire(api.markRunSeen(tabRun.prId, tabRun.prompt));
+  }, [readable, tabRun?.prId, tabRun?.prompt, tabRun?.startedAt]);
   const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
   const tabs = tabNames.map((name) =>
     name ? (
@@ -301,6 +327,7 @@ export default function App() {
         return setFocus((f) => Math.max(0, f - 1));
       case "right":
       case "enter":
+        if (focus === 0 && side.kind === "run") return openRun(side.run);
         return setFocus((f) => Math.min(2, f + 1));
       case "pageDown":
       case "pageUp":
@@ -450,6 +477,8 @@ export default function App() {
         onFilter={(v) => setFilter(0, v)}
         onFilterDone={() => setFilterOpen(null)}
         onSelect={(key) => {
+          const run = items.find((i) => i.key === key);
+          if (run?.kind === "run") return openRun(run.run);
           setFocus(0);
           setSideKey(key);
         }}

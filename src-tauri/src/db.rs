@@ -163,6 +163,28 @@ impl Db {
         Ok(())
     }
 
+    /// Runs still going, or finished but not looked at yet, oldest first.
+    pub fn active_runs(&self) -> Result<Vec<Run>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT json FROM runs
+             WHERE json_extract(json, '$.status') = 'running'
+                OR NOT coalesce(json_extract(json, '$.seen'), 0)
+             ORDER BY json_extract(json, '$.startedAt')",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.map(|j| Ok(serde_json::from_str(&j?)?)).collect()
+    }
+
+    pub fn mark_run_seen(&self, pr_id: &str, prompt: &str) -> Result<()> {
+        self.conn().execute(
+            "UPDATE runs SET json = json_set(json, '$.seen', json('true'))
+             WHERE pr_id = ?1 AND prompt = ?2 AND json_extract(json, '$.status') != 'running'",
+            [pr_id, prompt],
+        )?;
+        Ok(())
+    }
+
     /// Runs still marked running were cut off by the app quitting.
     pub fn interrupt_runs(&self) -> Result<()> {
         self.conn().execute(
@@ -348,6 +370,24 @@ mod tests {
             ]
         );
         assert!(db.runs("b").unwrap().is_empty());
+
+        // Listed while running or unseen; marking a running one seen does nothing.
+        db.put_run(&run("live", RunStatus::Running)).unwrap();
+        let active = |db: &Db| {
+            let mut v: Vec<_> = db
+                .active_runs()
+                .unwrap()
+                .into_iter()
+                .map(|r| r.prompt)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(active(&db), ["diagram", "live", "review"]);
+        for p in ["diagram", "live", "review"] {
+            db.mark_run_seen("a", p).unwrap();
+        }
+        assert_eq!(active(&db), ["live"]);
     }
 
     #[test]

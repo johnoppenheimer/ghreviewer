@@ -1,6 +1,7 @@
-import type { PrSummary } from "./api";
+import type { PrSummary, Run } from "./api";
 
 export type SideItem =
+  | { key: string; kind: "run"; run: Run }
   | { key: "all"; kind: "all"; total: number; unread: number }
   | { key: string; kind: "org"; org: string; total: number; unread: number; collapsed: boolean }
   | {
@@ -94,6 +95,10 @@ export function sidebarItems(opts: {
   }
   return items;
 }
+
+/** Sidebar rows for agent runs that are going or not looked at yet; above All. */
+export const runItems = (runs: Run[]): SideItem[] =>
+  runs.map((run) => ({ key: `run:${run.prId}:${run.prompt}`, kind: "run", run }));
 
 /** Whether a PR belongs to the sidebar selection (`all`, `org:<org>`, `repo:<owner/name>`). */
 export function inScope(pr: PrSummary, key: string): boolean {

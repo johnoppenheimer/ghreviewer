@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import type { PrSummary } from "./api";
+import type { PrSummary, Run } from "./api";
 import { REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
+import { PixelSpinner } from "./RunView";
 
 type FilterProps = {
   filter: string;
@@ -55,6 +56,13 @@ function Count({ total, unread }: { total: number; unread: number }) {
   );
 }
 
+function RunMark({ status }: { status: Run["status"] }) {
+  if (status === "running") return <PixelSpinner />;
+  if (status === "done") return <span className="ok">✓</span>;
+  if (status === "error") return <span className="fail">✗</span>;
+  return <span className="warn">○</span>;
+}
+
 export function Sidebar(
   props: FilterProps & {
     items: SideItem[];
@@ -80,6 +88,22 @@ export function Sidebar(
       <div className="scroll" ref={scrollRef}>
         {items.map((it) => {
           const sel = it.key === selected;
+          if (it.kind === "run") {
+            const { run } = it;
+            return (
+              <div
+                key={it.key}
+                className={`row side-run ${sel ? "selected" : ""}`}
+                title={`${run.repo}#${run.number} · ${run.prompt} · ${run.status}`}
+                onClick={() => onSelect(it.key)}
+              >
+                <span className="grow">
+                  {run.repo.split("/")[1]}#{run.number} <span className="tag">{run.prompt}</span>
+                </span>
+                <RunMark status={run.status} />
+              </div>
+            );
+          }
           let cls = "side-all";
           let label = "All";
           if (it.kind === "org") {

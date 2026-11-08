@@ -23,11 +23,15 @@ pub enum RunStatus {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Run {
     pub pr_id: String,
+    pub repo: String,
+    pub number: u64,
     pub prompt: String,
     pub harness: Harness,
+    /// Whether its finished result was looked at; until then the sidebar lists it.
+    pub seen: bool,
     pub status: RunStatus,
     pub started_at: u64,
     pub finished_at: Option<u64>,

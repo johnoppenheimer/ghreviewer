@@ -327,6 +327,24 @@ fn get_runs(app: AppHandle, st: State<'_, Arc<AppState>>, pr_id: String) -> Res<
     Ok(runs)
 }
 
+/// Runs to list in the sidebar: in progress, or finished and not looked at yet.
+#[tauri::command]
+fn list_active_runs(st: State<'_, Arc<AppState>>) -> Res<Vec<Run>> {
+    st.db.active_runs().map_err(err)
+}
+
+#[tauri::command]
+fn mark_run_seen(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    pr_id: String,
+    prompt: String,
+) -> Res<()> {
+    st.db.mark_run_seen(&pr_id, &prompt).map_err(err)?;
+    let _ = app.emit("run-updated", &pr_id);
+    Ok(())
+}
+
 /// The PR a prompt runs on, as the frontend knows it.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -418,6 +436,8 @@ fn run_prompt(app: AppHandle, st: State<'_, Arc<AppState>>, prompt: String, pr: 
     let spec = spec.ok_or("no such prompt in the config")?;
     let run = Run {
         pr_id: pr.id.clone(),
+        repo: pr.repo.clone(),
+        number: pr.number,
         prompt: prompt.clone(),
         harness: spec.harness,
         started_at: now_ms(),
@@ -474,6 +494,7 @@ fn cancel_run(
     if let Some(mut run) = runs.into_iter().find(|r| r.prompt == prompt) {
         run.status = RunStatus::Cancelled;
         run.finished_at = Some(now_ms());
+        run.seen = true; // you cancelled it, nothing to catch up on
         st.db.put_run(&run).map_err(err)?;
     }
     let _ = app.emit("run-updated", &pr_id);
@@ -576,6 +597,8 @@ pub fn run() {
             create_worktree,
             open_worktree,
             get_runs,
+            list_active_runs,
+            mark_run_seen,
             run_prompt,
             cancel_run,
             continue_run,
