@@ -107,7 +107,20 @@ export function inScope(pr: PrSummary, key: string): boolean {
   return true;
 }
 
-export type PrRow = { pr: PrSummary; depth: number; dim: boolean };
+/**
+ * Stack rail of one row, git-graph style. `col` holds its node; `cols` is the stack's width.
+ * `up`/`down`: line from the node to the row above/below in `col`. `through`: columns whose line
+ * passes the row. `branches`: columns a child line curves off to from the node.
+ */
+export type Graph = {
+  col: number;
+  cols: number;
+  up: boolean;
+  down: boolean;
+  through: number[];
+  branches: number[];
+};
+export type PrRow = { pr: PrSummary; dim: boolean; graph: Graph | null };
 
 /**
  * `all` (newest first) grouped into stacks, a PR sitting under the one whose head branch it merges
@@ -134,11 +147,23 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
   }
   const rows: PrRow[] = [];
   const done = new Set<PrSummary>();
-  const emit = (p: PrSummary, depth: number) => {
-    if (done.has(p)) return;
+  const cols: number[] = [];
+  const parents: number[] = [];
+  // First child carries on in its parent's column, later ones open a column right of all before.
+  const place = (p: PrSummary, col: number, parent: number): number => {
     done.add(p);
-    rows.push({ pr: p, depth, dim: dim.has(p) });
-    for (const k of kids.get(p) ?? []) emit(k, depth + 1);
+    const i = rows.length;
+    rows.push({ pr: p, dim: dim.has(p), graph: null });
+    cols.push(col);
+    parents.push(parent);
+    let max = col;
+    let first = true;
+    for (const k of kids.get(p) ?? []) {
+      if (done.has(k)) continue;
+      max = Math.max(max, place(k, first ? col : max + 1, i));
+      first = false;
+    }
+    return max;
   };
   for (const p of visible) {
     let root = p;
@@ -148,12 +173,27 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
       climbed.add(q);
       root = q;
     }
+    if (done.has(root)) continue;
     const start = rows.length;
-    emit(root, 0);
-    // A stack without branches reads fine flat (each row on the one above) and stays narrow.
-    const tree = rows.slice(start);
-    if (tree.every((r) => (kids.get(r.pr)?.length ?? 0) <= 1))
-      for (const r of tree) r.depth = Math.min(r.depth, 1);
+    const width = place(root, 0, -1) + 1;
+    if (rows.length - start < 2) continue;
+    for (let j = start; j < rows.length; j++)
+      rows[j].graph = {
+        col: cols[j],
+        cols: width,
+        up: false,
+        down: false,
+        through: [],
+        branches: [],
+      };
+    for (let j = start + 1; j < rows.length; j++) {
+      const i = parents[j];
+      const [from, to] = [rows[i].graph!, rows[j].graph!];
+      if (to.col === from.col) from.down = true;
+      else from.branches.push(to.col);
+      to.up = true;
+      for (let k = i + 1; k < j; k++) rows[k].graph!.through.push(to.col);
+    }
   }
   return rows;
 }

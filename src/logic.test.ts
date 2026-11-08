@@ -113,7 +113,7 @@ test("scope, step, relTime", () => {
   expect(relTime("2026-01-07T00:00:00Z", now)).toBe("3d");
 });
 
-test("stackRows nests stacks and dims ancestors that aren't shown", () => {
+test("stackRows lays stacks out as a graph and dims ancestors that aren't shown", () => {
   const mk = (n: number, base: string, head: string | null, extra: Partial<PrSummary> = {}) =>
     ({ id: `${n}`, number: n, repo: "o/r", baseRef: base, headRef: head, ...extra }) as PrSummary;
   // Newest first: 4 is on 3, which is on 2 (not mine); 5 is alone; 6/7 form a cycle.
@@ -133,18 +133,25 @@ test("stackRows nests stacks and dims ancestors that aren't shown", () => {
     mk(23, "c21", "c23", { repo: "o/b" }),
   ];
   const rows = stackRows(all, (p) => !p.context);
-  expect(rows.map((r) => [r.pr.number, r.depth, r.dim])).toEqual([
+  expect(rows.map((r) => [r.pr.number, r.graph?.col ?? null, r.dim])).toEqual([
     [2, 0, true],
-    [3, 1, true],
-    [4, 1, false],
-    [5, 0, false],
+    [3, 0, true],
+    [4, 0, false],
+    [5, null, false],
     [7, 0, false],
-    [6, 1, false],
-    [8, 0, false],
+    [6, 0, false],
+    [8, null, false],
     [20, 0, false],
-    [21, 1, false],
-    [23, 2, false],
+    [21, 0, false],
+    [23, 0, false],
     [22, 1, false],
   ]);
+  const g = (n: number) => rows.find((r) => r.pr.number === n)!.graph;
+  expect(g(2)).toEqual({ col: 0, cols: 1, up: false, down: true, through: [], branches: [] });
+  expect(g(4)).toEqual({ col: 0, cols: 1, up: true, down: false, through: [], branches: [] });
+  expect(g(20)).toEqual({ col: 0, cols: 2, up: false, down: true, through: [], branches: [1] });
+  expect(g(21)).toEqual({ col: 0, cols: 2, up: true, down: true, through: [1], branches: [] });
+  expect(g(23)).toEqual({ col: 0, cols: 2, up: true, down: false, through: [1], branches: [] });
+  expect(g(22)).toEqual({ col: 1, cols: 2, up: true, down: false, through: [], branches: [] });
   expect(stackRows(all, (p) => p.number === 5).map((r) => r.pr.number)).toEqual([5]);
 });

@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useRef } from "react";
 import type { Run } from "./api";
-import { type PrRow, REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
+import { type Graph, type PrRow, REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
 import { PixelSpinner } from "./RunView";
 
 type FilterProps = {
@@ -134,6 +134,24 @@ export function Sidebar(
   );
 }
 
+/** Stack rail at the left of a PR row; see `Graph`. */
+function StackRail({ g }: { g: Graph }) {
+  const at = (col: number) => ({ "--c": col }) as CSSProperties;
+  return (
+    <div className="rail" aria-hidden>
+      {g.through.map((c) => (
+        <i key={c} className="through" style={at(c)} />
+      ))}
+      {g.up && <i className="up" style={at(g.col)} />}
+      {g.down && <i className="down" style={at(g.col)} />}
+      {g.branches.map((c) => (
+        <i key={c} className="branch" style={{ ...at(g.col), "--w": c - g.col } as CSSProperties} />
+      ))}
+      <i className="node" style={at(g.col)} />
+    </div>
+  );
+}
+
 export function Inbox(
   props: FilterProps & {
     title: string;
@@ -156,7 +174,7 @@ export function Inbox(
       <FilterInput {...props} />
       <div className="scroll" ref={scrollRef}>
         {rows.length === 0 && <div className="empty">{empty}</div>}
-        {rows.map(({ pr, depth, dim }) => {
+        {rows.map(({ pr, dim, graph }) => {
           const sel = pr.id === selected;
           const unread = pr.unread && !dim;
           const [glyph, glyphCls] = checkGlyph(pr.checks);
@@ -165,14 +183,14 @@ export function Inbox(
             <div
               key={pr.id}
               className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""}`}
-              style={{ "--depth": depth } as CSSProperties}
+              style={{ "--cols": graph?.cols ?? 0 } as CSSProperties}
               title={dim ? "Stack parent, not in your inbox" : undefined}
               onClick={() => onSelect(pr.id)}
             >
+              {graph && <StackRail g={graph} />}
               <div className="line">
                 <span className="dot">{unread ? "●" : ""}</span>
                 <span className="grow dim">
-                  {depth > 0 && "↳ "}
                   {pr.repo}#{pr.number}
                 </span>
                 <span className="dim">{relTime(pr.updatedAt, now)}</span>
