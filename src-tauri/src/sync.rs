@@ -1,6 +1,6 @@
 use crate::agent::Review;
 use crate::{config::Rule, github::Github};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -556,7 +556,8 @@ fn review_input(
     }
     json!({
         "pullRequestId": pr_id,
-        "commitOID": head_oid,
+        // Only inline lines need the commit the agent read, and it may be gone after a force-push.
+        "commitOID": if threads.is_empty() { None } else { head_oid },
         "event": if approve { "APPROVE" } else { "COMMENT" },
         "body": body.join("\n\n"),
         "threads": threads,
@@ -578,33 +579,26 @@ pub async fn post_review(
     picked: &[usize],
     approve: bool,
 ) -> Result<(String, bool)> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Data {
-        add_pull_request_review: Added,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Added {
-        pull_request_review: Url,
-    }
-    #[derive(Deserialize)]
-    struct Url {
-        url: String,
-    }
-    let send = |inline| {
-        let input = review_input(pr_id, head_oid, review, picked, approve, inline);
-        gh.mutate::<Data>(REVIEW_MUTATION, json!({ "input": input }))
+    // A failed mutation comes back as a null field next to its errors, so read it untyped.
+    let send = |input: Value| async move {
+        let d: Value = gh
+            .mutate(REVIEW_MUTATION, json!({ "input": input }))
+            .await?;
+        let url = d.pointer("/addPullRequestReview/pullRequestReview/url");
+        url.and_then(Value::as_str)
+            .map(Into::into)
+            .context("GitHub returned no review URL")
     };
-    let url = |d: Data| d.add_pull_request_review.pull_request_review.url;
-    let has_inline = picked
-        .iter()
-        .filter_map(|&i| review.findings.get(i))
-        .any(|f| f.path.is_some() && f.line.is_some());
-    match send(true).await {
-        Ok(d) => Ok((url(d), false)),
-        // Usually a line outside the diff, which fails the whole review.
-        Err(_) if has_inline => Ok((url(send(false).await?), true)),
+    let input = review_input(pr_id, head_oid, review, picked, approve, true);
+    let has_inline = input["threads"].as_array().is_some_and(|t| !t.is_empty());
+    match send(input).await {
+        Ok(url) => Ok((url, false)),
+        // GitHub answered, so no review was made: usually a line outside the diff, which fails
+        // the whole review. Not on network errors: the review may exist despite a timeout.
+        Err(e) if has_inline && e.downcast_ref::<reqwest::Error>().is_none() => {
+            let input = review_input(pr_id, head_oid, review, picked, approve, false);
+            Ok((send(input).await?, true))
+        }
         Err(e) => Err(e),
     }
 }
@@ -647,6 +641,8 @@ mod tests {
         let all = review_input("PR_1", None, &review, &[0], true, false);
         assert_eq!(all["event"], "APPROVE");
         assert_eq!(all["threads"], json!([]));
+        let body_only = review_input("PR_1", Some("abc"), &review, &[1], false, true);
+        assert_eq!(body_only["commitOID"], Value::Null);
         assert_eq!(all["body"], "Thanks!\n\n**inline** · `a.rs:3`\n\nb");
     }
 

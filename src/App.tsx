@@ -541,12 +541,16 @@ export default function App() {
           : []),
       ];
     }),
-    ...(pickable && !post.isPending
+    ...(review && !review.posted && !post.isPending
       ? [
-          {
-            label: `post review: comment with ${picked.filter(Boolean).length} findings`,
-            run: () => postReview(false),
-          },
+          ...(picked.some(Boolean)
+            ? [
+                {
+                  label: `post review: comment with ${picked.filter(Boolean).length} findings`,
+                  run: () => postReview(false),
+                },
+              ]
+            : []),
           { label: "post review: approve", run: () => postReview(true) },
         ]
       : []),
