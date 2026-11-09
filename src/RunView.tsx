@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Prompt, Review, Run } from "./api";
 import { relTime } from "./model";
 
@@ -57,8 +57,22 @@ function Markdown({ text }: { text: string }) {
 
 const IMAGE = /\.(svg|png|jpe?g|gif|webp)$/i;
 
+// Encoded per segment, so the page's relative links resolve to the files next to it.
+const runFileSrc = (path: string) =>
+  "runfile://localhost" + path.split("/").map(encodeURIComponent).join("/");
+
 function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
-  const src = convertFileSrc(path);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState<number>();
+  useEffect(() => {
+    // The runfile protocol adds a script that posts the page's height.
+    const onMessage = (e: MessageEvent) => {
+      const h = e.data?.ghreviewerHeight;
+      if (e.source === frame.current?.contentWindow && typeof h === "number" && h > 0) setHeight(h);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
   return (
     <div className="run-file">
       <div className="item-head">
@@ -68,12 +82,14 @@ function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
         <span className="dim">{path}</span>
       </div>
       {IMAGE.test(path) ? (
-        <img src={src} alt="" loading="lazy" />
+        <img src={convertFileSrc(path)} alt="" loading="lazy" />
       ) : (
         // Agent-written HTML: scripts run (diagrams often need them) but stay in an opaque origin.
         // Keys go to the iframe while it has focus, so give it back on leaving it.
         <iframe
-          src={src}
+          ref={frame}
+          src={runFileSrc(path)}
+          style={height ? { height } : undefined}
           loading="lazy"
           sandbox="allow-scripts"
           title={path}

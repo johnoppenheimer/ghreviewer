@@ -29,7 +29,7 @@
         "img-src": "'self' data: https: asset: http://asset.localhost",
         "style-src": "'self'",
         "style-src-attr": "'unsafe-inline'",
-        "frame-src": "asset: http://asset.localhost"
+        "frame-src": "runfile: http://runfile.localhost"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -37,7 +37,7 @@
         "script-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: https: asset: http://asset.localhost",
         "style-src": "'self' 'unsafe-inline'",
-        "frame-src": "asset: http://asset.localhost"
+        "frame-src": "runfile: http://runfile.localhost"
       },
       "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": { "enable": true, "scope": [] }

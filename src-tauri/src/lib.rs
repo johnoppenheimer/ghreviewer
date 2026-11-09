@@ -586,6 +586,52 @@ async fn post_review(
     Ok(())
 }
 
+/// Posts the page's height to the app, so its iframe can show it whole.
+/// Measures the body's children (with what spills out of them): the document height would follow
+/// `min-height: 100vh` and grow along with the iframe forever.
+/// Skips a height that grew exactly as much as the iframe: a `100vh` child follows our own resize.
+/// It also hides the vertical scrollbar: `min-height: 100vh` plus padding overflows any height.
+const FIT_SCRIPT: &str = r#"<script>(() => {
+  document.documentElement.style.overflowY = "hidden";
+  const b = document.body;
+  let extra;
+  const post = () => {
+    let h = 0;
+    for (const e of b.children) {
+      const r = e.getBoundingClientRect();
+      h = Math.max(h, r.bottom, r.top + e.scrollHeight);
+    }
+    const s = getComputedStyle(b);
+    h += scrollY + parseFloat(s.paddingBottom) + parseFloat(s.borderBottomWidth) + parseFloat(s.marginBottom);
+    h = Math.ceil(h);
+    if (h - innerHeight === extra) return;
+    extra = h - innerHeight;
+    parent.postMessage({ ghreviewerHeight: h }, "*");
+  };
+  new ResizeObserver(post).observe(b);
+  document.fonts.ready.then(post);
+})();</script>"#;
+
+/// `runfile://localhost/<path>`: the asset protocol's files, with `FIT_SCRIPT` added to HTML.
+fn run_file(app: &AppHandle, uri: &tauri::http::Uri) -> tauri::http::Response<Vec<u8>> {
+    let path = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
+    let allowed = tauri::path::SafePathBuf::new(path.as_ref().into())
+        .is_ok_and(|p| app.asset_protocol_scope().is_allowed(p));
+    let res = tauri::http::Response::builder();
+    let Some(mut body) = allowed.then(|| std::fs::read(path.as_ref()).ok()).flatten() else {
+        return res.status(404).body(Vec::new()).unwrap();
+    };
+    let lower = path.to_lowercase();
+    // Sniffing would serve `<?xml`-led pages as XML, where the appended script is a parse error.
+    let mime = if lower.ends_with(".html") || lower.ends_with(".htm") {
+        body.extend_from_slice(FIT_SCRIPT.as_bytes());
+        "text/html".to_string()
+    } else {
+        tauri::utils::mime_type::MimeType::parse(&body, &path)
+    };
+    res.header("Content-Type", mime).body(body).unwrap()
+}
+
 /// Opens a file a run on the PR mentioned with its default app.
 #[tauri::command]
 fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<()> {
@@ -604,6 +650,13 @@ fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .register_asynchronous_uri_scheme_protocol("runfile", |ctx, req, responder| {
+            // Off the main thread: a page can link big files.
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(run_file(&app, req.uri()))
+            });
+        })
         .setup(|app| {
             let data_dir = dirs::data_dir().context("no data dir")?.join("ghreviewer");
             std::fs::create_dir_all(&data_dir)?;

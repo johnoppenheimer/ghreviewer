@@ -1340,6 +1340,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "notify",
+ "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde",

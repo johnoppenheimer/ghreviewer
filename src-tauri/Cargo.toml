@@ -35,6 +35,7 @@ toml_edit = "0.25.19"
 notify = "8.2.2"
 dirs = "7.0.0"
 anyhow = "1.0.104"
+percent-encoding = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
