@@ -14,6 +14,25 @@ run = "bun tauri dev"
 description = "Build the macOS app bundle"
 run = "bun tauri build"
 
+[tasks.dmg]
+description = "Build a .dmg to share (ad-hoc signed, not notarized)"
+depends = ["build"]
+# Not `tauri build --bundles dmg`: its `hdiutil create` fails on macOS 27 ("resource busy").
+run = '''
+set -e
+version=$(bun -e 'console.log(require("./src-tauri/tauri.conf.json").version)')
+out=src-tauri/target/release/bundle/dmg
+stage=$(mktemp -d)
+ditto src-tauri/target/release/bundle/macos/ghreviewer.app "$stage/ghreviewer.app"
+ln -s /Applications "$stage/Applications"
+mkdir -p "$out"
+dmg="$out/ghreviewer_${version}_$(uname -m).dmg"
+rm -f "$dmg"
+diskutil image create from --format UDZO --volumeName ghreviewer "$stage" "$dmg"
+rm -rf "$stage"
+echo "$dmg"
+'''
+
 [tasks.fmt]
 description = "Format Rust and frontend"
 run = ["cargo fmt --manifest-path src-tauri/Cargo.toml", "bunx oxfmt ."]
