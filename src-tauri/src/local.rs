@@ -18,7 +18,7 @@ pub struct Worktree {
 }
 
 /// GUI apps on macOS start with a minimal PATH; add the usual install locations.
-fn command(program: &str) -> Command {
+pub fn command(program: &str) -> Command {
     let home = dirs::home_dir().unwrap_or_default();
     let extra = [
         "/opt/homebrew/bin".into(),
@@ -34,7 +34,7 @@ fn command(program: &str) -> Command {
     cmd
 }
 
-fn expand(root: &str) -> PathBuf {
+pub fn expand(root: &str) -> PathBuf {
     match root.strip_prefix("~/") {
         Some(rest) => dirs::home_dir().unwrap_or_default().join(rest),
         None => PathBuf::from(root),
@@ -92,12 +92,17 @@ fn parse_worktrees(porcelain: &str, branch: &str) -> Option<String> {
     })
 }
 
+/// Checked once: installing worktrunk needs an app restart to show up.
 async fn wt_installed() -> bool {
-    command("wt")
-        .arg("--version")
-        .output()
-        .await
-        .is_ok_and(|o| o.status.success())
+    static WT: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+    *WT.get_or_init(|| async {
+        command("wt")
+            .arg("--version")
+            .output()
+            .await
+            .is_ok_and(|o| o.status.success())
+    })
+    .await
 }
 
 pub async fn lookup(roots: &[String], repo: &str, branch: &str) -> Result<Worktree> {

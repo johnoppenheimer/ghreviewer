@@ -61,6 +61,8 @@ command = ["open", "-a", "Cursor", "{path}"]
 # extra flags for it (model, permissions…). In `prompt`, {url} {repo} {number} {branch} {base}
 # {path} (the worktree) and {out} (a folder kept per PR and prompt) are replaced.
 # .html/.svg/.png files in {out} (emptied on each run) or mentioned in the answer show in the tab.
+# Agents read PR text written by others and act with your rights: allow only what a prompt needs
+# (claude: --allowedTools as below; opencode: `deny` rules such as `gh pr review *` in its config).
 # [[prompts]]
 # name = "diagram"
 # harness = "claude"
@@ -232,6 +234,8 @@ pub fn load(path: &Path) -> Result<Option<Config>> {
 
 /// Replaces the file in one step so the watcher never reads it half-written.
 pub fn write(path: &Path, text: &str) -> Result<()> {
+    // Into the file a symlink (e.g. from a dotfiles repo) points at, not over the link.
+    let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)?;

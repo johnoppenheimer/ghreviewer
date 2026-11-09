@@ -116,7 +116,14 @@ export default function App() {
 
   useEffect(() => {
     const unlisten = [
-      listen("changed", () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "pr" })),
+      // Worktrees cost git/wt processes to look up, so only refetch them when one was created.
+      listen("changed", () =>
+        qc.invalidateQueries({
+          predicate: (q) => !["pr", "worktree"].includes(String(q.queryKey[0])),
+        }),
+      ),
+      listen("status", () => qc.invalidateQueries({ queryKey: ["status"] })),
+      listen("worktree-created", () => qc.invalidateQueries({ queryKey: ["worktree"] })),
       listen<{ id: string; detail: PrDetail }>("pr-updated", (e) =>
         qc.setQueriesData({ queryKey: ["pr", e.payload.id] }, e.payload.detail),
       ),

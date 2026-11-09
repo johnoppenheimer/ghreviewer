@@ -427,7 +427,10 @@ pub async fn fetch_inbox(
             after = d.search.page_info.end_cursor;
         }
     }
-    fetch_parents(gh, viewer, &mut acc, &mut defaults).await?;
+    // Best effort: a failed stack lookup must not cost the inbox its sync.
+    if let Err(e) = fetch_parents(gh, viewer, &mut acc, &mut defaults).await {
+        eprintln!("stack parents: {e:#}");
+    }
     Ok((acc.into_values().collect(), remaining))
 }
 

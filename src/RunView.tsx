@@ -71,7 +71,16 @@ function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
         <img src={src} alt="" />
       ) : (
         // Agent-written HTML: scripts run (diagrams often need them) but stay in an opaque origin.
-        <iframe src={src} sandbox="allow-scripts" title={path} />
+        // Keys go to the iframe while it has focus, so give it back on leaving it.
+        <iframe
+          src={src}
+          sandbox="allow-scripts"
+          title={path}
+          onMouseLeave={(e) => {
+            e.currentTarget.blur();
+            window.focus();
+          }}
+        />
       )}
     </div>
   );

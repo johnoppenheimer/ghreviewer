@@ -68,7 +68,7 @@ fn changed(app: &AppHandle) {
 
 fn update_status(app: &AppHandle, st: &AppState, f: impl FnOnce(&mut Status)) {
     f(&mut st.status.lock().unwrap());
-    changed(app);
+    let _ = app.emit("status", ());
 }
 
 fn reload_config(app: &AppHandle, st: &AppState) {
@@ -85,6 +85,7 @@ fn reload_config(app: &AppHandle, st: &AppState) {
                 st.wake.notify_one();
             }
             update_status(app, st, |s| s.config_error = None);
+            changed(app);
         }
         Err(e) => update_status(app, st, |s| s.config_error = Some(err(e))),
     }
@@ -164,6 +165,7 @@ async fn poller(app: AppHandle, st: Arc<AppState>) {
                 Err(e) => s.error = Some(err(e)),
             }
         });
+        changed(&app);
         prefetch_details(&st).await;
         let secs = st.cfg.read().unwrap().poll_interval_secs.max(30);
         tokio::select! {
@@ -358,11 +360,20 @@ struct Target {
     head_oid: Option<String>,
 }
 
+/// Whether the run with `token` is still the live one for `key`: not cancelled, not replaced.
+fn is_current<T>(
+    running: &HashMap<(String, String), (u64, T)>,
+    key: &(String, String),
+    token: u64,
+) -> bool {
+    running.get(key).map(|r| r.0) == Some(token)
+}
+
 /// Saves a run, unless it was cancelled or replaced by a newer run of the same prompt.
 fn save_run(app: &AppHandle, st: &AppState, token: u64, run: &Run, finished: bool) {
     let key = (run.pr_id.clone(), run.prompt.clone());
     let mut running = st.runs.lock().unwrap();
-    if running.get(&key).map(|r| r.0) != Some(token) {
+    if !is_current(&running, &key, token) {
         return;
     }
     if finished {
@@ -371,6 +382,17 @@ fn save_run(app: &AppHandle, st: &AppState, token: u64, run: &Run, finished: boo
     let _ = st.db.put_run(run);
     drop(running);
     let _ = app.emit("run-updated", &run.pr_id);
+}
+
+/// `{out}` of a prompt on a PR, unique per PR (node id) and prompt name.
+fn run_dir(pr_id: &str, prompt: &str) -> anyhow::Result<PathBuf> {
+    let safe = |s: &str| s.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_");
+    // An empty name would make `{out}` the PR's folder, and each run empties `{out}`.
+    anyhow::ensure!(
+        !safe(prompt).trim_matches('_').is_empty(),
+        "prompt names need a letter or digit"
+    );
+    Ok(Path::new(&safe(pr_id)).join(safe(prompt)))
 }
 
 async fn run_task(
@@ -388,16 +410,11 @@ async fn run_task(
             .push(format!("creating worktree: wt switch pr:{}", pr.number));
         save_run(app, st, token, run, false);
         local::create(&roots, &pr.repo, pr.number).await?;
-        changed(app);
+        let _ = app.emit("worktree-created", ());
         wt = local::lookup(&roots, &pr.repo, &pr.branch).await?;
     }
     let path = wt.path.context("no worktree on the PR branch")?;
-    let safe = |s: &str| s.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_");
-    let out = st
-        .data_dir
-        .join("runs")
-        .join(format!("{}-{}", safe(&pr.repo), pr.number))
-        .join(safe(&spec.name));
+    let out = st.data_dir.join("runs").join(run_dir(&pr.id, &spec.name)?);
     // Fresh for each run, so it only holds this run's files.
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out)?;
@@ -606,4 +623,33 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_live_run_saves() {
+        let key = ("PR_1".to_string(), "review".to_string());
+        let mut running = HashMap::new();
+        running.insert(key.clone(), (1, ()));
+        assert!(is_current(&running, &key, 1));
+        running.insert(key.clone(), (2, ())); // re-run replaces it
+        assert!(!is_current(&running, &key, 1));
+        assert!(is_current(&running, &key, 2));
+        running.remove(&key); // cancelled
+        assert!(!is_current(&running, &key, 2));
+    }
+
+    #[test]
+    fn run_dirs_are_per_pr_and_never_the_pr_folder() {
+        assert_eq!(
+            run_dir("PR_kw1", "pr review").unwrap(),
+            Path::new("PR_kw1/pr_review")
+        );
+        assert_ne!(run_dir("PR_a", "x").unwrap(), run_dir("PR_b", "x").unwrap());
+        assert!(run_dir("PR_1", "").is_err());
+        assert!(run_dir("PR_1", " / ").is_err());
+    }
 }

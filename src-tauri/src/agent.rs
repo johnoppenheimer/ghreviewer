@@ -2,7 +2,7 @@
 //! turns its JSON event stream into a `Run`: session id, tool activity and final answer.
 
 use crate::config::{Harness, Prompt};
-use crate::local::{login_command, shell_quote};
+use crate::local::{expand, login_command, shell_quote};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -287,10 +287,7 @@ fn mentioned_files(text: &str, base: &Path) -> Vec<String> {
         if token.contains('\n') || !shown(token) {
             continue;
         }
-        let path = match token.strip_prefix("~/") {
-            Some(rest) => dirs::home_dir().unwrap_or_default().join(rest),
-            None => base.join(token), // a no-op join for absolute paths
-        };
+        let path = base.join(expand(token)); // a no-op join for absolute paths
         let path = path.display().to_string();
         if Path::new(&path).is_file() && !found.contains(&path) {
             found.push(path);

@@ -1,11 +1,9 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use tokio::{process::Command, sync::Mutex};
+use tokio::sync::Mutex;
 
 const ENDPOINT: &str = "https://api.github.com/graphql";
-// GUI apps on macOS don't inherit the shell PATH, so try the usual install locations too.
-const GH_BINS: [&str; 3] = ["gh", "/opt/homebrew/bin/gh", "/usr/local/bin/gh"];
 
 pub struct Github {
     http: reqwest::Client,
@@ -91,17 +89,16 @@ impl Github {
 }
 
 async fn gh_token() -> Result<String> {
-    for bin in GH_BINS {
-        match Command::new(bin).args(["auth", "token"]).output().await {
-            Ok(out) if out.status.success() => {
-                return Ok(String::from_utf8(out.stdout)?.trim().to_string());
-            }
-            Ok(out) => bail!(
-                "`gh auth token` failed ({}). Run `gh auth login`.",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
-            Err(_) => continue,
-        }
+    let out = crate::local::command("gh")
+        .args(["auth", "token"])
+        .output()
+        .await
+        .context("GitHub CLI `gh` not found. Install it and run `gh auth login`.")?;
+    if !out.status.success() {
+        bail!(
+            "`gh auth token` failed ({}). Run `gh auth login`.",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
-    bail!("GitHub CLI `gh` not found. Install it and run `gh auth login`.")
+    Ok(String::from_utf8(out.stdout)?.trim().to_string())
 }
