@@ -256,28 +256,32 @@ function Detail({ pr, now }: { pr: PrDetail; now: number }) {
         <span>{relTime(pr.createdAt, now)} ago</span>
       </div>
 
-      <div className="section">
-        <div className="section-head">Description</div>
-        {pr.bodyHTML ? <Html html={pr.bodyHTML} /> : <div className="dim">No description.</div>}
-      </div>
-
-      <div className="section">
-        <div className="section-head">Conversation · {timeline.length}</div>
-        {timeline.map((it) => (
-          <Entry key={it.id} it={it} now={now} />
-        ))}
-      </div>
-
-      {threads.length > 0 && (
+      <div className="pr-split">
         <div className="section">
-          <div className="section-head">
-            Review threads · {open} open / {threads.length}
-          </div>
-          {threads.map((t) => (
-            <ThreadView key={t.id} t={t} now={now} />
-          ))}
+          <div className="section-head">Description</div>
+          {pr.bodyHTML ? <Html html={pr.bodyHTML} /> : <div className="dim">No description.</div>}
         </div>
-      )}
+
+        <div>
+          <div className="section">
+            <div className="section-head">Conversation · {timeline.length}</div>
+            {timeline.map((it) => (
+              <Entry key={it.id} it={it} now={now} />
+            ))}
+          </div>
+
+          {threads.length > 0 && (
+            <div className="section">
+              <div className="section-head">
+                Review threads · {open} open / {threads.length}
+              </div>
+              {threads.map((t) => (
+                <ThreadView key={t.id} t={t} now={now} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

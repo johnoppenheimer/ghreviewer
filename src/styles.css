@@ -426,6 +426,15 @@ a:hover {
   border-top: 1px solid var(--border);
   padding-top: 6px;
 }
+/* Wider than a full-size 14" MacBook Pro window (1512pt): description left, conversation right. */
+@media (min-width: 1513px) {
+  .pr-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+}
 .section-head {
   color: var(--dim);
   text-transform: uppercase;
