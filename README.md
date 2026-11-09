@@ -78,6 +78,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `Cmd-R`             | sync now                                                   |
 | `w` / `W`           | open the PR's worktree (or create it) / choose how to open |
 | `[` / `]`           | previous / next PR tab (the PR, then each prompt)          |
+| `{` / `}`           | previous / next file of the prompt tab (window 1920px+)    |
 | `r`                 | run or re-run the tab's prompt                             |
 | `c`                 | continue the tab's agent session in a terminal             |
 | `p` / `x`           | pin / hide a repo in the sidebar                           |
@@ -99,7 +100,7 @@ The app looks for a local clone of each PR's repo among the direct children of y
 
 Each `[[prompts]]` entry in the config adds a tab to the PR pane. `r` runs the prompt headless with its harness in the PR's worktree (created first if needed). The tab shows live progress, then the answer.
 
-- **Files.** HTML, SVG and image files the agent saves in `{out}`, or mentions in its answer, show in the tab.
+- **Files.** HTML, SVG and image files the agent saves in `{out}`, or mentions in its answer, show in the tab. In a window 1920px or wider, they sit right of the answer, one tab per file (`{` / `}`).
 - **Results** are kept across restarts until you re-run. A run made on an older commit than the PR's current head is marked `*`.
 - **Continuing.** `c` opens the agent's session in your `terminal` so you can carry on the conversation.
 - **Quitting.** Runs stop if you quit the app. You can still continue them with `c`.

@@ -157,6 +157,8 @@ export default function App() {
   const [tabName, setTabName] = usePersisted("prTab", "");
   const [picks, setPicks] = useState<Record<string, boolean[]>>({});
   const [cursor, setCursor] = useState(0);
+  // File tab of the prompt tab (window 1920px+); falls back to the run's first file.
+  const [tabFile, setTabFile] = useState<string>();
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -372,6 +374,11 @@ export default function App() {
     if (readable && tabRun) fire(api.markRunSeen(tabRun.prId, tabRun.prompt));
   }, [readable, tabRun?.prId, tabRun?.prompt, tabRun?.startedAt]);
   const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
+  const files = tabRun?.files ?? [];
+  const shownFile = tabFile && files.includes(tabFile) ? tabFile : files[0];
+  const switchFile = (delta: number) =>
+    files.length &&
+    setTabFile(files[(files.indexOf(shownFile!) + delta + files.length) % files.length]);
 
   // Findings of the tab's run: which are picked (until relaunch) and the keyboard cursor.
   const review = tabRun?.review;
@@ -418,6 +425,8 @@ export default function App() {
         onPost: postReview,
         onOpen: (url) => fire(openUrl(url)),
       }}
+      shownFile={shownFile}
+      onFile={setTabFile}
       onRun={() => runPrompt(tabPrompt.name)}
       onOpenFile={(path) => fire(api.openPath(selected.id, path))}
     />
@@ -479,6 +488,10 @@ export default function App() {
         return switchTab(tab - 1);
       case "nextTab":
         return switchTab(tab + 1);
+      case "prevFile":
+        return switchFile(-1);
+      case "nextFile":
+        return switchFile(1);
       case "runPrompt":
         return tabPrompt && runPrompt(tabPrompt.name);
       case "continueRun":

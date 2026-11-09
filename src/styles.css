@@ -231,6 +231,36 @@ a:hover {
   max-width: 100%;
   border: 1px solid var(--border);
 }
+.run-file-tabs,
+.run-file-keys {
+  display: none;
+}
+/* Room for 80 columns of review beside a file about 640px wide: review left, one tab per file right. */
+@media (min-width: 1920px) {
+  .run-split {
+    display: grid;
+    grid-template-columns: 80ch minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+  .run-files {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .run-main {
+    min-width: 0;
+  }
+  .run-file-tabs {
+    display: flex;
+    margin-bottom: 8px;
+  }
+  .run-file.inactive {
+    display: none;
+  }
+  .run-file-keys {
+    display: inline;
+  }
+}
 .run-activity {
   margin-top: 16px;
 }

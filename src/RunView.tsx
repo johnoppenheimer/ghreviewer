@@ -61,7 +61,10 @@ const IMAGE = /\.(svg|png|jpe?g|gif|webp)$/i;
 const runFileSrc = (path: string) =>
   "runfile://localhost" + path.split("/").map(encodeURIComponent).join("/");
 
-function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
+const fileName = (path: string) => path.split("/").pop();
+
+function RunFile(props: { path: string; inactive: boolean; onOpen: () => void }) {
+  const { path, inactive, onOpen } = props;
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState<number>();
   useEffect(() => {
@@ -74,10 +77,10 @@ function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
   return (
-    <div className="run-file">
+    <div className={`run-file${inactive ? " inactive" : ""}`}>
       <div className="item-head">
         <button className="head-btn" title="Open with its default app" onClick={onOpen}>
-          {path.split("/").pop()}
+          {fileName(path)}
         </button>{" "}
         <span className="dim">{path}</span>
       </div>
@@ -235,11 +238,16 @@ export function RunView(props: {
   hasWorktree: boolean;
   now: number;
   picker: Picker;
+  /** File tab shown beside the review (window 1920px+). */
+  shownFile: string | undefined;
+  onFile: (path: string) => void;
   onRun: () => void;
   onOpenFile: (path: string) => void;
 }) {
-  const { prompt, run, stale, hasWorktree, now, picker, onRun, onOpenFile } = props;
+  const { prompt, run, stale, hasWorktree, now, picker, shownFile, onFile, onRun, onOpenFile } =
+    props;
   const running = run?.status === "running";
+  const files = run?.files ?? [];
   return (
     <div className="pr-pane">
       <h1 className="pr-title">
@@ -259,27 +267,48 @@ export function RunView(props: {
         {run && "r re-run · "}
         {run?.sessionId && "c continue in terminal · "}
         {running && ": cancel · "}[ / ] tabs
+        {files.length > 1 && <span className="run-file-keys"> · {"{ / }"} files</span>}
       </div>
       {!run && <pre className="run-prompt">{prompt.prompt}</pre>}
       {run?.error && <pre className="run-error fail">{run.error}</pre>}
-      {run?.files.map((f) => (
-        <RunFile key={f} path={f} onOpen={() => onOpenFile(f)} />
-      ))}
-      {run?.review && <ReviewPicker review={run.review} p={picker} />}
-      {run?.output && <Markdown text={run.output} />}
-      {run && run.activity.length > 0 && (
-        <details className="run-activity" open={running}>
-          <summary className="dim">
-            {run.activity.length} step{run.activity.length === 1 ? "" : "s"}
-            {run.sessionId && ` · session ${run.sessionId}`}
-          </summary>
-          {(running ? run.activity.slice(-15) : run.activity).map((a, i) => (
-            <div key={i} className="dim">
-              {a}
+      <div className={files.length ? "run-split" : undefined}>
+        {files.length > 0 && (
+          <div className="run-files">
+            <div className="tabs run-file-tabs">
+              {files.map((f) => (
+                <button
+                  key={f}
+                  className={`tab ${f === shownFile ? "active" : ""}`}
+                  title={f}
+                  onClick={() => onFile(f)}
+                >
+                  {fileName(f)}
+                </button>
+              ))}
             </div>
-          ))}
-        </details>
-      )}
+            {files.map((f) => (
+              <RunFile key={f} path={f} inactive={f !== shownFile} onOpen={() => onOpenFile(f)} />
+            ))}
+          </div>
+        )}
+        <div className="run-main">
+          {run?.review && <ReviewPicker review={run.review} p={picker} />}
+          {run?.output && <Markdown text={run.output} />}
+          {run && run.activity.length > 0 && (
+            <details className="run-activity" open={running}>
+              <summary className="dim">
+                {run.activity.length} step{run.activity.length === 1 ? "" : "s"}
+                {run.sessionId && ` · session ${run.sessionId}`}
+              </summary>
+              {(running ? run.activity.slice(-15) : run.activity).map((a, i) => (
+                <div key={i} className="dim">
+                  {a}
+                </div>
+              ))}
+            </details>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

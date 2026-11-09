@@ -24,6 +24,8 @@ export type Action =
   | "worktreeMenu"
   | "prevTab"
   | "nextTab"
+  | "prevFile"
+  | "nextFile"
   | "runPrompt"
   | "continueRun"
   | "collapse";
@@ -56,6 +58,8 @@ const SINGLE: Record<string, Action> = {
   W: "worktreeMenu",
   "[": "prevTab",
   "]": "nextTab",
+  "{": "prevFile",
+  "}": "nextFile",
   r: "runPrompt",
   c: "continueRun",
   " ": "collapse",
@@ -94,6 +98,7 @@ export const HELP: [string, string][] = [
   ["w", "open PR worktree (first open_with), or create it (worktrunk)"],
   ["W", "open PR worktree with… (all open_with entries)"],
   ["[ / ]", "previous / next PR tab (the PR, then each prompt)"],
+  ["{ / }", "previous / next file of the prompt tab (window 1920px+)"],
   ["r", "run or re-run the tab's prompt (creates the worktree first)"],
   ["c", "continue the tab's agent session in a terminal"],
   ["p / x", "pin / hide repo (sidebar)"],

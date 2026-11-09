@@ -131,6 +131,7 @@ Three columns separated by 1px lines, no rounding, no shadows, everything monosp
 | `w`                        | open the PR's worktree with the first `[[open_with]]`, or create it (`wt switch pr:N`)   |
 | `W`                        | pick any `[[open_with]]` command for the worktree (palette)                              |
 | `[` / `]`                  | previous / next PR tab: the PR, then one per `[[prompts]]` entry                         |
+| `{` / `}`                  | previous / next file tab of the prompt tab (window 1920px+)                              |
 | `r`                        | run or re-run the tab's prompt headless (opencode / claude), creating the worktree first |
 | `c`                        | continue the tab's agent session in a new terminal (`terminal`)                          |
 | `p` / `x` (sidebar)        | pin / hide repo                                                                          |
