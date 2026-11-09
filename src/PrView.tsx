@@ -10,6 +10,11 @@ import {
 } from "./api";
 import { REVIEW_LABEL, checkGlyph, relTime } from "./model";
 
+// Global hook, so it also covers the run markdown: off-screen images aren't fetched or decoded.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "IMG") node.setAttribute("loading", "lazy");
+});
+
 function Html({ html }: { html: string | undefined }) {
   const clean = useMemo(() => DOMPurify.sanitize(html ?? ""), [html]);
   return <div className="md" dangerouslySetInnerHTML={{ __html: clean }} />;

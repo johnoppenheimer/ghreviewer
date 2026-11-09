@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type PrDetail, type PrSummary, type Repo, type Run, api } from "./api";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
@@ -40,46 +40,92 @@ function useNow(ms: number) {
 /** GitHub contribution-graph style blocks, 2 rows, fading from full green to bg across 1/3 of the window. */
 const SYNC_ROWS = 5;
 
+// Full-screen triangle; no vertex buffer needed.
+const SYNC_VERT = `#version 300 es
+void main() { gl_Position = vec4(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0, 0.0, 1.0); }`;
+
+// One cell per `cell` pixels, each with its own level and flicker phase, all on the GPU.
+const SYNC_FRAG = `#version 300 es
+precision highp float;
+uniform vec2 res;
+uniform float cell, time, seed;
+uniform vec3 ok, bg;
+out vec4 color;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + seed) * 43758.5453); }
+void main() {
+  vec2 c = floor(gl_FragCoord.xy / cell);
+  float x = c.x / ceil(res.x / cell);
+  // 0-4 like GitHub's levels, jittered so it reads as activity rather than a smooth ramp.
+  float level = clamp(floor((1.0 - x) * 4.0 + (hash(c) - 0.5) * 1.6 + 0.5), 0.0, 4.0) / 4.0;
+  // Like CSS \`1.4s steps(3) infinite alternate both\` from opacity 1 to 0.35, delayed per column.
+  float t = max(0.0, time - x * 1500.0 - hash(c + 7.0) * 300.0) / 1400.0;
+  float p = mod(floor(t), 2.0) == 0.0 ? fract(t) : 1.0 - fract(t);
+  float a = 1.0 - 0.65 * floor(p * 3.0) / 3.0;
+  color = vec4(mix(bg, ok, level) * a, a);
+}`;
+
 function SyncBlocks() {
-  // Square cells sized from the strip's measured height, so it follows the theme's font size.
   const ref = useRef<HTMLDivElement>(null);
-  const [grid, setGrid] = useState({ cols: 0, cell: 0 });
   useEffect(() => {
-    const el = ref.current!;
+    // Created here so each mount gets a fresh context; the cleanup loses the previous one.
+    const canvas = ref.current!.appendChild(document.createElement("canvas"));
+    const gl = canvas.getContext("webgl2", { antialias: false, depth: false });
+    if (!gl) return () => canvas.remove();
+    const program = gl.createProgram();
+    for (const [type, src] of [
+      [gl.VERTEX_SHADER, SYNC_VERT],
+      [gl.FRAGMENT_SHADER, SYNC_FRAG],
+    ] as const) {
+      const shader = gl.createShader(type)!;
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      gl.attachShader(program, shader);
+    }
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    const u = (name: string) => gl.getUniformLocation(program, name);
+    gl.uniform1f(u("seed"), Math.random() * 100);
+    // Theme colors through a 1px 2D canvas, so any CSS color syntax works.
+    // shortcut: read on resize only, so a theme switch mid-sync shows from the next sync.
+    const px = Object.assign(document.createElement("canvas"), { width: 1, height: 1 });
+    const ctx = px.getContext("2d", { willReadFrequently: true })!;
+    const rgb = (name: string) => {
+      ctx.fillStyle = getComputedStyle(canvas).getPropertyValue(name);
+      ctx.fillRect(0, 0, 1, 1);
+      return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3), (v) => v / 255);
+    };
+
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const start = performance.now();
+    let frame = 0;
+    const draw = () => {
+      cancelAnimationFrame(frame);
+      gl.uniform1f(u("time"), still ? 0 : performance.now() - start);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (!still) frame = requestAnimationFrame(draw);
+    };
+    // Square cells sized from the strip's measured height, so it follows the theme's font size.
     const measure = () => {
-      const cell = el.clientHeight / SYNC_ROWS;
-      setGrid({ cols: Math.ceil(el.clientWidth / cell), cell });
+      canvas.width = Math.round(canvas.clientWidth * devicePixelRatio);
+      canvas.height = Math.round(canvas.clientHeight * devicePixelRatio);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.uniform2f(u("res"), canvas.width, canvas.height);
+      gl.uniform1f(u("cell"), canvas.height / SYNC_ROWS);
+      gl.uniform3fv(u("ok"), rgb("--ok"));
+      gl.uniform3fv(u("bg"), rgb("--bg"));
+      draw();
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    observer.observe(canvas);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      // Frees the GPU context now instead of whenever it's garbage collected.
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      canvas.remove();
+    };
   }, []);
-  const { cols, cell } = grid;
-  const cells = useMemo(
-    () =>
-      Array.from({ length: cols * SYNC_ROWS }, (_, i) => {
-        const col = Math.floor(i / SYNC_ROWS);
-        // 0-4 like GitHub's levels, jittered so it reads as activity rather than a smooth ramp.
-        const level = Math.round((1 - col / cols) * 4 + (Math.random() - 0.5) * 1.6);
-        return {
-          level: Math.max(0, Math.min(4, level)) / 4,
-          delay: (col / cols) * 1500 + Math.random() * 300,
-        };
-      }),
-    [cols],
-  );
-  return (
-    <div
-      ref={ref}
-      className="sync-blocks"
-      style={{ gridAutoColumns: `${cell}px`, gridTemplateRows: `repeat(${SYNC_ROWS}, 1fr)` }}
-      aria-hidden
-    >
-      {cells.map((c, i) => (
-        <i key={i} style={{ "--l": c.level, animationDelay: `${c.delay}ms` } as CSSProperties} />
-      ))}
-    </div>
-  );
+  return <div ref={ref} className="sync-blocks" aria-hidden />;
 }
 
 export default function App() {

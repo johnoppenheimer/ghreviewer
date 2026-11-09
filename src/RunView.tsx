@@ -68,12 +68,13 @@ function RunFile({ path, onOpen }: { path: string; onOpen: () => void }) {
         <span className="dim">{path}</span>
       </div>
       {IMAGE.test(path) ? (
-        <img src={src} alt="" />
+        <img src={src} alt="" loading="lazy" />
       ) : (
         // Agent-written HTML: scripts run (diagrams often need them) but stay in an opaque origin.
         // Keys go to the iframe while it has focus, so give it back on leaving it.
         <iframe
           src={src}
+          loading="lazy"
           sandbox="allow-scripts"
           title={path}
           onMouseLeave={(e) => {
