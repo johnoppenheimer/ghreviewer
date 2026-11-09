@@ -429,6 +429,7 @@ async fn run_task(
         ("number", &number),
         ("url", &pr.url),
         ("out", &out_str),
+        ("review_format", agent::REVIEW_FORMAT),
     ];
     let prompt = local::fill(std::slice::from_ref(&spec.prompt), &vars).remove(0);
     run.path = Some(path.clone());
@@ -536,6 +537,55 @@ async fn continue_run(st: State<'_, Arc<AppState>>, pr_id: String, prompt: Strin
     local::open_with(&terminal, &vars).await.map_err(err)
 }
 
+/// Posts the picked findings of a run's review to GitHub as one review.
+#[tauri::command]
+async fn post_review(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    pr_id: String,
+    prompt: String,
+    picked: Vec<usize>,
+    approve: bool,
+) -> Res<()> {
+    let latest = || -> Res<Run> {
+        let runs = st.db.runs(&pr_id).map_err(err)?;
+        let run = runs.into_iter().find(|r| r.prompt == prompt);
+        run.ok_or_else(|| "this prompt hasn't run on this PR".into())
+    };
+    let run = latest()?;
+    let review = run
+        .review
+        .as_ref()
+        .ok_or("this run has no findings to post")?;
+    if review.posted.is_some() {
+        return Err("this review was already posted".into());
+    }
+    if picked.is_empty() && !approve {
+        return Err("pick at least one finding to comment".into());
+    }
+    let (url, all_in_body) = sync::post_review(
+        &st.gh,
+        &pr_id,
+        run.head_oid.as_deref(),
+        review,
+        &picked,
+        approve,
+    )
+    .await
+    .map_err(err)?;
+    // Re-read: the prompt may have been re-run while posting.
+    let mut now = latest()?;
+    if now.started_at == run.started_at
+        && let Some(review) = now.review.as_mut()
+    {
+        review.posted = Some(url);
+        review.all_in_body = all_in_body;
+        st.db.put_run(&now).map_err(err)?;
+    }
+    let _ = app.emit("run-updated", &pr_id);
+    Ok(())
+}
+
 /// Opens a file a run on the PR mentioned with its default app.
 #[tauri::command]
 fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<()> {
@@ -619,6 +669,7 @@ pub fn run() {
             run_prompt,
             cancel_run,
             continue_run,
+            post_review,
             open_path,
         ])
         .run(tauri::generate_context!())

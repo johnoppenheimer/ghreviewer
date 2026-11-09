@@ -43,6 +43,33 @@ impl Github {
     }
 
     pub async fn query<T: DeserializeOwned>(&self, query: &str, variables: Value) -> Result<T> {
+        let (data, errors) = self.send(query, variables).await?;
+        match data {
+            Some(data) => {
+                // Partial data is common (e.g. SAML-protected orgs); keep what we got.
+                if !errors.is_empty() {
+                    eprintln!("GitHub partial errors: {errors}");
+                }
+                Ok(data)
+            }
+            None => bail!("GitHub: {errors}"),
+        }
+    }
+
+    /// Like `query`, but any error fails it: a failed mutation comes back as partial data.
+    pub async fn mutate<T: DeserializeOwned>(&self, query: &str, variables: Value) -> Result<T> {
+        match self.send(query, variables).await? {
+            (Some(data), errors) if errors.is_empty() => Ok(data),
+            (_, errors) => bail!("GitHub: {errors}"),
+        }
+    }
+
+    /// The response's data and its errors joined with `; `.
+    async fn send<T: DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: Value,
+    ) -> Result<(Option<T>, String)> {
         let body = json!({ "query": query, "variables": variables });
         let mut refreshed = false;
         loop {
@@ -74,16 +101,7 @@ impl Github {
                 .map(|e| e.message.as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
-            return match res.data {
-                Some(data) => {
-                    // Partial data is common (e.g. SAML-protected orgs); keep what we got.
-                    if !errors.is_empty() {
-                        eprintln!("GitHub partial errors: {errors}");
-                    }
-                    Ok(data)
-                }
-                None => bail!("GitHub: {errors}"),
-            };
+            return Ok((res.data, errors));
         }
     }
 }

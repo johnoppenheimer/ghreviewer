@@ -47,10 +47,46 @@ pub struct Run {
     pub error: Option<String>,
     /// Existing .html/.svg/.png… files the answer mentions.
     pub files: Vec<String>,
+    /// Findings the agent returned in a ```ghreviewer block, to pick and post from the app.
+    pub review: Option<Review>,
     /// Message the current `output` comes from.
     #[serde(skip)]
     pub message: String,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Review {
+    /// Opening text of the GitHub review.
+    pub summary: String,
+    pub findings: Vec<Finding>,
+    /// URL of the review once posted from the app.
+    pub posted: Option<String>,
+    /// GitHub rejected the inline comments, so every finding went into the review body.
+    pub all_in_body: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Finding {
+    pub severity: String,
+    pub title: String,
+    pub body: String,
+    pub path: Option<String>,
+    pub line: Option<u64>,
+}
+
+/// What `{review_format}` in a prompt expands to; `take_review` parses the result.
+pub const REVIEW_FORMAT: &str = r#"End your final answer with your findings as a fenced code block tagged `ghreviewer` holding JSON:
+```ghreviewer
+{"summary": "optional opening line of the GitHub review",
+ "findings": [{"severity": "blocker | should-fix | nit", "title": "one line",
+   "body": "Markdown comment to the PR author, with the proposed fix",
+   "path": "path/in/repo.rs", "line": 42}]}
+```
+`path` and `line` are optional. Give them only for a line of the new version of the file that the PR diff shows: it becomes an inline comment there. The user picks which findings to post from the app, so don't post anything on GitHub yourself."#;
+
+const FENCE: &str = "```ghreviewer";
 
 const MAX_ACTIVITY: usize = 500;
 
@@ -122,6 +158,34 @@ impl Run {
             self.output.push_str("\n\n");
         }
         self.output.push_str(text);
+    }
+
+    /// Moves the last ```ghreviewer block of the answer into `review`. A broken block stays
+    /// in the answer with a note, so the findings aren't lost.
+    fn take_review(&mut self) {
+        let Some(start) = self.output.rfind(FENCE) else {
+            return;
+        };
+        let after = &self.output[start + FENCE.len()..];
+        // JSON strings can't hold raw newlines, so a line starting with ``` closes the block.
+        let (json, end) = match after.find("\n```") {
+            Some(i) => (&after[..i], start + FENCE.len() + i + 4),
+            None => (after, self.output.len()),
+        };
+        match serde_json::from_str::<Review>(json) {
+            Ok(review) => {
+                self.review = Some(Review {
+                    posted: None,
+                    all_in_body: false,
+                    ..review
+                });
+                self.output.replace_range(start..end, "");
+                self.output.truncate(self.output.trim_end().len());
+            }
+            Err(e) => self
+                .output
+                .push_str(&format!("\n\n> ghreviewer block ignored: {e}")),
+        }
     }
 
     fn tool(&mut self, line: String) {
@@ -199,6 +263,7 @@ pub async fn run(
     on_update: impl FnMut(&Run),
 ) -> Result<()> {
     run_argv(&argv(spec, out, title), cwd, prompt, run, on_update).await?;
+    run.take_review();
     run.files = files_in(out);
     for f in mentioned_files(&run.output, cwd) {
         if !run.files.contains(&f) {
@@ -348,6 +413,46 @@ mod tests {
         assert_eq!(run.output, "Final");
         run.apply(r#"{"type":"result","is_error":true,"result":"over quota"}"#);
         assert_eq!(run.error.as_deref(), Some("over quota"));
+    }
+
+    #[test]
+    fn takes_the_review_block() {
+        let block = r#"```ghreviewer
+{"summary": "s", "posted": "x", "findings": [
+  {"severity": "blocker", "title": "t", "body": "use\n```rust\nfoo()\n```", "path": "a.rs", "line": 3},
+  {"title": "u", "body": "b"}]}
+```"#;
+        let mut run = Run {
+            output: format!("Review\n\n```ghreviewer\nold\n```\n\n{block}\n"),
+            ..Default::default()
+        };
+        run.take_review();
+        assert_eq!(run.output, "Review\n\n```ghreviewer\nold\n```");
+        let review = run.review.unwrap();
+        assert_eq!((review.summary.as_str(), review.posted), ("s", None));
+        let f = &review.findings;
+        assert_eq!(f[0].body, "use\n```rust\nfoo()\n```");
+        assert_eq!((f[0].path.as_deref(), f[0].line), (Some("a.rs"), Some(3)));
+        assert_eq!((f[1].path.as_deref(), f[1].severity.as_str()), (None, ""));
+
+        let mut broken = Run {
+            output: "Review\n```ghreviewer\n{nope\n```".into(),
+            ..Default::default()
+        };
+        broken.take_review();
+        assert!(broken.review.is_none());
+        assert!(
+            broken
+                .output
+                .contains("{nope\n```\n\n> ghreviewer block ignored")
+        );
+
+        let mut none = Run {
+            output: "LGTM".into(),
+            ..Default::default()
+        };
+        none.take_review();
+        assert!(none.review.is_none() && none.output == "LGTM");
     }
 
     #[test]

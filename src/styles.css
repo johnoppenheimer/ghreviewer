@@ -234,6 +234,19 @@ a:hover {
 .run-activity {
   margin-top: 16px;
 }
+.review {
+  margin-bottom: 18px;
+}
+.finding.cursor {
+  border-left-color: var(--accent);
+}
+.finding.unpicked {
+  opacity: 0.5;
+}
+.head-btn:disabled {
+  color: var(--dim);
+  text-decoration: none;
+}
 .run-activity div {
   white-space: nowrap;
   overflow: hidden;

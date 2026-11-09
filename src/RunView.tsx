@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useEffect, useMemo, useState } from "react";
-import type { Prompt, Run } from "./api";
+import type { Prompt, Review, Run } from "./api";
 import { relTime } from "./model";
 
 // Clockwise path around the edge of a 3x3 grid (index 4, the center, stays empty).
@@ -125,16 +125,104 @@ function StatusLine({ run, stale, now }: { run: Run; stale: boolean; now: number
   );
 }
 
+const SEVERITY: Record<string, string> = { blocker: "fail", "should-fix": "warn" };
+
+export type Picker = {
+  picked: boolean[];
+  cursor: number;
+  posting: boolean;
+  onToggle: (i: number) => void;
+  onPost: (approve: boolean) => void;
+  onOpen: (url: string) => void;
+};
+
+/** The run's findings, each shown as it will be posted, to pick and post as one GitHub review. */
+function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
+  const { posted } = review;
+  const n = p.picked.filter(Boolean).length;
+  let actions;
+  if (posted)
+    actions = (
+      <>
+        <button className="head-btn" onClick={() => p.onOpen(posted)}>
+          posted ↗
+        </button>
+        {review.allInBody && (
+          <span className="warn"> · GitHub rejected the inline comments: all are in the body</span>
+        )}
+      </>
+    );
+  else if (p.posting)
+    actions = (
+      <span className="warn with-spinner">
+        <PixelSpinner />
+        posting…
+      </span>
+    );
+  else
+    actions = (
+      <>
+        <button className="head-btn" disabled={!n} onClick={() => p.onPost(false)}>
+          comment ({n})
+        </button>
+        {" · "}
+        <button className="head-btn" onClick={() => p.onPost(true)}>
+          approve{n ? ` with ${n}` : ""}
+        </button>
+        <span className="dim"> · j/k Space pick</span>
+      </>
+    );
+  return (
+    <div className="review">
+      <div className="section-head">
+        Findings · {n}/{review.findings.length} picked
+      </div>
+      {review.summary && <Markdown text={review.summary} />}
+      {review.findings.map((f, i) => (
+        <div
+          key={i}
+          data-finding={i}
+          className={`item finding${i === p.cursor ? " cursor" : ""}${p.picked[i] ? "" : " unpicked"}`}
+        >
+          <div className="item-head">
+            <button
+              className="head-btn"
+              role="checkbox"
+              aria-checked={p.picked[i]}
+              disabled={!!posted}
+              onClick={() => p.onToggle(i)}
+            >
+              [{p.picked[i] ? "x" : " "}]
+            </button>{" "}
+            <span className={SEVERITY[f.severity] ?? "dim"}>{f.severity || "note"}</span>{" "}
+            <b>{f.title}</b>
+            {f.path && (
+              <span className="dim">
+                {" "}
+                {f.path}
+                {f.line != null && `:${f.line}`}
+              </span>
+            )}
+          </div>
+          <Markdown text={f.body} />
+        </div>
+      ))}
+      <div className="run-status">{actions}</div>
+    </div>
+  );
+}
+
 export function RunView(props: {
   prompt: Prompt;
   run: Run | undefined;
   stale: boolean;
   hasWorktree: boolean;
   now: number;
+  picker: Picker;
   onRun: () => void;
   onOpenFile: (path: string) => void;
 }) {
-  const { prompt, run, stale, hasWorktree, now, onRun, onOpenFile } = props;
+  const { prompt, run, stale, hasWorktree, now, picker, onRun, onOpenFile } = props;
   const running = run?.status === "running";
   return (
     <div className="pr-pane">
@@ -161,6 +249,7 @@ export function RunView(props: {
       {run?.files.map((f) => (
         <RunFile key={f} path={f} onOpen={() => onOpenFile(f)} />
       ))}
+      {run?.review && <ReviewPicker review={run.review} p={picker} />}
       {run?.output && <Markdown text={run.output} />}
       {run && run.activity.length > 0 && (
         <details className="run-activity" open={running}>

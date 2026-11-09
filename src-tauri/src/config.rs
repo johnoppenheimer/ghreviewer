@@ -61,6 +61,8 @@ command = ["open", "-a", "Cursor", "{path}"]
 # extra flags for it (model, permissions…). In `prompt`, {url} {repo} {number} {branch} {base}
 # {path} (the worktree) and {out} (a folder kept per PR and prompt) are replaced.
 # .html/.svg/.png files in {out} (emptied on each run) or mentioned in the answer show in the tab.
+# {review_format} asks the agent for findings you then pick and post as a GitHub review, e.g.
+# prompt = "/pr-review {url}\n\n{review_format}"
 # Agents read PR text written by others and act with your rights: allow only what a prompt needs
 # (claude: --allowedTools as below; opencode: `deny` rules such as `gh pr review *` in its config).
 # [[prompts]]

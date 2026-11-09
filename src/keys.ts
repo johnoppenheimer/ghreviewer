@@ -78,7 +78,7 @@ export function createKeymap() {
 }
 
 export const HELP: [string, string][] = [
-  ["j / k", "next / previous"],
+  ["j / k", "next / previous (findings in a prompt tab)"],
   ["h / l, Tab / S-Tab", "focus previous / next column"],
   ["Enter", "focus next column"],
   ["gg / G", "top / bottom"],
@@ -96,7 +96,7 @@ export const HELP: [string, string][] = [
   ["p / x", "pin / hide repo (sidebar)"],
   ["H", "show hidden repos"],
   ["e", "hide repos without PRs (sidebar)"],
-  ["Space", "collapse org (sidebar)"],
+  ["Space", "collapse org (sidebar) / pick finding (prompt tab)"],
   [":", "command palette"],
   ["?", "this help"],
 ];

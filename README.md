@@ -6,9 +6,9 @@ A local macOS app for triaging and reading the GitHub pull requests that concern
 - **Unread tracking.** A PR is unread when someone else did something on it after you last opened it.
 - **Stacks.** Stacked PRs show as a tree. Parents that aren't in your inbox show greyed out.
 - **Worktrees.** See whether a PR is checked out locally, create a worktree for it, and open it in your editor or terminal.
-- **Agent prompts.** Run your own prompts with [opencode](https://opencode.ai) or [Claude Code](https://claude.com/claude-code) on a PR's worktree, and read the answer (with any HTML, SVG or image files it makes) in a tab next to the PR.
+- **Agent prompts.** Run your own prompts with [opencode](https://opencode.ai) or [Claude Code](https://claude.com/claude-code) on a PR's worktree, and read the answer (with any HTML, SVG or image files it makes) in a tab next to the PR. A review prompt can return findings you pick and post as a GitHub review.
 
-Code review itself (diffs, inline comments, approving) stays on GitHub: `o` opens the PR there.
+Reading diffs and replying to threads stays on GitHub: `o` opens the PR there. The only thing the app writes to GitHub is a review you post from an agent's findings.
 
 Everything runs on your Mac. The app talks to the GitHub API directly with your `gh` login and keeps a local cache. There is no server and no account.
 
@@ -67,7 +67,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 
 | Key                 | Action                                                     |
 | ------------------- | ---------------------------------------------------------- |
-| `j` / `k`           | next / previous                                            |
+| `j` / `k`           | next / previous (findings, in a prompt tab)                |
 | `h` / `l`, `Tab`    | previous / next column (`Enter` too)                       |
 | `gg` / `G`          | top / bottom                                               |
 | `Ctrl-d` / `Ctrl-u` | scroll the PR half a page                                  |
@@ -81,6 +81,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `c`                 | continue the tab's agent session in a terminal             |
 | `p` / `x`           | pin / hide a repo in the sidebar                           |
 | `H`, `e`, `Space`   | show hidden repos, hide repos without PRs, collapse an org |
+| `Space`             | pick or drop a finding (prompt tab)                        |
 
 ### Stacks
 
@@ -101,6 +102,16 @@ Each `[[prompts]]` entry in the config adds a tab to the PR pane. `r` runs the p
 - **Results** are kept across restarts until you re-run. A run made on an older commit than the PR's current head is marked `*`.
 - **Continuing.** `c` opens the agent's session in your `terminal` so you can carry on the conversation.
 - **Quitting.** Runs stop if you quit the app. You can still continue them with `c`.
+
+#### Posting a review
+
+Put `{review_format}` in a prompt, and the agent ends its answer with its findings as structured data. The tab lists them above the answer, each exactly as it will be posted.
+
+- **Picking.** Blockers and should-fix findings start ticked, nits don't. Click `[x]`, or step with `j` / `k` and press `Space`.
+- **Posting.** `comment` or `approve` (also in the `:` palette) posts the picked findings as one review. A finding with a file and line becomes an inline comment there. The others are listed in the review body, after the agent's summary.
+- **Lines outside the diff.** GitHub rejects the whole review if one inline comment points outside the diff. The app then posts again with every finding in the body, and says so.
+- **Stale runs.** Comments go on the commit the agent read, so their lines stay right after new pushes.
+- **Once.** A run's review is posted once. Re-run the prompt for a new one.
 
 Agents act with your permissions and read PR text written by other people. Allow each prompt only what it needs: `--allowedTools` in `args` for Claude, and `deny` rules for opencode in its own config.
 
@@ -159,21 +170,22 @@ command = ["open", "-a", "Ghostty", "{path}"]
 
 `harness` is `opencode` or `claude`, and `args` are extra flags for it (model, permissions, ...). In `prompt`, these are replaced:
 
-| Placeholder | Replaced with                                            |
-| ----------- | -------------------------------------------------------- |
-| `{url}`     | the PR's URL                                             |
-| `{repo}`    | the repo                                                 |
-| `{number}`  | the PR number                                            |
-| `{branch}`  | the PR's branch                                          |
-| `{base}`    | the branch it merges into                                |
-| `{path}`    | the worktree                                             |
-| `{out}`     | a folder kept per PR and prompt, emptied before each run |
+| Placeholder       | Replaced with                                                           |
+| ----------------- | ----------------------------------------------------------------------- |
+| `{url}`           | the PR's URL                                                            |
+| `{repo}`          | the repo                                                                |
+| `{number}`        | the PR number                                                           |
+| `{branch}`        | the PR's branch                                                         |
+| `{base}`          | the branch it merges into                                               |
+| `{path}`          | the worktree                                                            |
+| `{out}`           | a folder kept per PR and prompt, emptied before each run                |
+| `{review_format}` | instructions to return findings ([Posting a review](#posting-a-review)) |
 
 ```toml
 [[prompts]]
 name = "review"
 harness = "opencode"
-prompt = "Review PR {url}. Don't post anything on GitHub."
+prompt = "Review PR {url}.\n\n{review_format}"
 
 [[prompts]]
 name = "diagram"
@@ -190,7 +202,7 @@ args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Ba
 
 - **Token.** The GitHub token comes from `gh auth token` and is kept in memory only.
 - **Cache.** The inbox, PR details, read state and agent results live in `~/Library/Application Support/ghreviewer/cache.db`. Agent output folders are in `runs/` next to it. Deleting them is safe: the app re-syncs, but read state and past results are lost.
-- **Network.** The app only talks to `api.github.com`. Agents talk to whatever their harness uses.
+- **Network.** The app only talks to `api.github.com`, and only reads, except when you post a review. Agents talk to whatever their harness uses.
 
 ## Development
 

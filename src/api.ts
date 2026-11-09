@@ -72,6 +72,23 @@ export type Run = {
   output: string;
   error: string | null;
   files: string[];
+  review: Review | null;
+};
+/** Findings an agent returned in a ```ghreviewer block, to pick and post as a GitHub review. */
+export type Review = {
+  summary: string;
+  findings: Finding[];
+  /** Review URL once posted. */
+  posted: string | null;
+  /** GitHub rejected the inline comments, so every finding went into the review body. */
+  allInBody: boolean;
+};
+export type Finding = {
+  severity: string;
+  title: string;
+  body: string;
+  path: string | null;
+  line: number | null;
 };
 /** Local clone + worktree on the PR branch; `wt` is whether worktrunk is installed. */
 export type Worktree = { clone: string | null; path: string | null; wt: boolean };
@@ -199,5 +216,7 @@ export const api = {
     }),
   cancelRun: (prId: string, prompt: string) => invoke<void>("cancel_run", { prId, prompt }),
   continueRun: (prId: string, prompt: string) => invoke<void>("continue_run", { prId, prompt }),
+  postReview: (prId: string, prompt: string, picked: number[], approve: boolean) =>
+    invoke<void>("post_review", { prId, prompt, picked, approve }),
   openPath: (prId: string, path: string) => invoke<void>("open_path", { prId, path }),
 };

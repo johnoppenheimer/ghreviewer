@@ -153,6 +153,8 @@ export default function App() {
   const [paletteQuery, setPaletteQuery] = useState("");
   // PR pane tab: "" for the PR itself, else a prompt name.
   const [tabName, setTabName] = usePersisted("prTab", "");
+  const [picks, setPicks] = useState<Record<string, boolean[]>>({});
+  const [cursor, setCursor] = useState(0);
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -251,6 +253,12 @@ export default function App() {
     } else if (focus === 1) {
       const i = step(prs.length, prIdx, delta);
       if (i >= 0) setPrId(prs[i].id);
+    } else if (pickable && Number.isFinite(delta) && review?.findings[cursor + delta]) {
+      // j/k step through findings; past either end they scroll the pane again.
+      setCursor(cursor + delta);
+      paneRef.current
+        ?.querySelector(`[data-finding="${cursor + delta}"]`)
+        ?.scrollIntoView({ block: "nearest" });
     } else if (Number.isFinite(delta)) {
       paneRef.current?.scrollBy({ top: delta * 60 });
     } else {
@@ -353,6 +361,30 @@ export default function App() {
     if (readable && tabRun) fire(api.markRunSeen(tabRun.prId, tabRun.prompt));
   }, [readable, tabRun?.prId, tabRun?.prompt, tabRun?.startedAt]);
   const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
+
+  // Findings of the tab's run: which are picked (until relaunch) and the keyboard cursor.
+  const review = tabRun?.review;
+  const reviewKey = tabRun ? `${tabRun.prId}/${tabRun.prompt}/${tabRun.startedAt}` : "";
+  const picked = picks[reviewKey] ?? review?.findings.map((f) => f.severity !== "nit") ?? [];
+  const pickable = !!review?.findings.length && !review.posted;
+  useEffect(() => setCursor(0), [reviewKey]);
+  const togglePick = (i: number) =>
+    setPicks((p) => ({ ...p, [reviewKey]: picked.map((v, j) => (i === j ? !v : v)) }));
+  const post = useMutation({
+    mutationFn: (v: { key: string; run: Run; picked: number[]; approve: boolean }) =>
+      api.postReview(v.run.prId, v.run.prompt, v.picked, v.approve),
+    onError: (e) => setUiError(String(e)),
+  });
+  const posting = post.isPending && post.variables?.key === reviewKey;
+  const postReview = (approve: boolean) =>
+    tabRun &&
+    !post.isPending &&
+    post.mutate({
+      key: reviewKey,
+      run: tabRun,
+      picked: picked.flatMap((v, i) => (v ? [i] : [])),
+      approve,
+    });
   const tabs = tabNames.map((name) =>
     name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
@@ -367,6 +399,14 @@ export default function App() {
       stale={isStale(runOf(tabPrompt.name), pr?.headRefOid)}
       hasWorktree={!!wt?.path}
       now={now}
+      picker={{
+        picked,
+        cursor,
+        posting,
+        onToggle: togglePick,
+        onPost: postReview,
+        onOpen: (url) => fire(openUrl(url)),
+      }}
       onRun={() => runPrompt(tabPrompt.name)}
       onOpenFile={(path) => fire(api.openPath(selected.id, path))}
     />
@@ -435,6 +475,7 @@ export default function App() {
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
       case "collapse":
+        if (focus === 2 && pickable) return togglePick(cursor);
         if (focus !== 0 || side.kind !== "org") return;
         return setCollapsed((c) => {
           const next = new Set(c);
@@ -500,6 +541,15 @@ export default function App() {
           : []),
       ];
     }),
+    ...(pickable && !post.isPending
+      ? [
+          {
+            label: `post review: comment with ${picked.filter(Boolean).length} findings`,
+            run: () => postReview(false),
+          },
+          { label: "post review: approve", run: () => postReview(true) },
+        ]
+      : []),
     {
       label: showHidden ? "hide hidden repos" : "show hidden repos",
       run: () => setShowHidden((v) => !v),

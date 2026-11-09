@@ -1,3 +1,4 @@
+use crate::agent::Review;
 use crate::{config::Rule, github::Github};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -525,9 +526,129 @@ fn append_page(pr: &mut Value, mut page: Value) {
     pr["timelineItems"]["pageInfo"] = page["pageInfo"].take();
 }
 
+/// `AddPullRequestReviewInput` for the picked findings: inline comments where they have a
+/// line (if `inline`), the rest listed in the body after the summary.
+fn review_input(
+    pr_id: &str,
+    head_oid: Option<&str>,
+    review: &Review,
+    picked: &[usize],
+    approve: bool,
+    inline: bool,
+) -> Value {
+    let mut body: Vec<String> = Some(review.summary.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .into_iter()
+        .collect();
+    let mut threads = Vec::new();
+    for f in picked.iter().filter_map(|&i| review.findings.get(i)) {
+        match (&f.path, f.line) {
+            (Some(path), Some(line)) if inline => threads.push(json!({
+                "path": path, "line": line, "side": "RIGHT",
+                "body": format!("**{}**\n\n{}", f.title, f.body),
+            })),
+            (Some(path), line) => {
+                let at = line.map(|l| format!(":{l}")).unwrap_or_default();
+                body.push(format!("**{}** · `{path}{at}`\n\n{}", f.title, f.body));
+            }
+            _ => body.push(format!("**{}**\n\n{}", f.title, f.body)),
+        }
+    }
+    json!({
+        "pullRequestId": pr_id,
+        "commitOID": head_oid,
+        "event": if approve { "APPROVE" } else { "COMMENT" },
+        "body": body.join("\n\n"),
+        "threads": threads,
+    })
+}
+
+const REVIEW_MUTATION: &str = r#"
+mutation($input: AddPullRequestReviewInput!) {
+  addPullRequestReview(input: $input) { pullRequestReview { url } }
+}"#;
+
+/// Posts the picked findings as one review on the commit the agent read. Returns its URL, and
+/// whether GitHub rejected the inline comments so every finding went into the body instead.
+pub async fn post_review(
+    gh: &Github,
+    pr_id: &str,
+    head_oid: Option<&str>,
+    review: &Review,
+    picked: &[usize],
+    approve: bool,
+) -> Result<(String, bool)> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Data {
+        add_pull_request_review: Added,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Added {
+        pull_request_review: Url,
+    }
+    #[derive(Deserialize)]
+    struct Url {
+        url: String,
+    }
+    let send = |inline| {
+        let input = review_input(pr_id, head_oid, review, picked, approve, inline);
+        gh.mutate::<Data>(REVIEW_MUTATION, json!({ "input": input }))
+    };
+    let url = |d: Data| d.add_pull_request_review.pull_request_review.url;
+    let has_inline = picked
+        .iter()
+        .filter_map(|&i| review.findings.get(i))
+        .any(|f| f.path.is_some() && f.line.is_some());
+    match send(true).await {
+        Ok(d) => Ok((url(d), false)),
+        // Usually a line outside the diff, which fails the whole review.
+        Err(_) if has_inline => Ok((url(send(false).await?), true)),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::Finding;
+
+    #[test]
+    fn review_input_splits_inline_and_body() {
+        let finding = |title: &str, path: Option<&str>, line| Finding {
+            title: title.into(),
+            body: "b".into(),
+            path: path.map(Into::into),
+            line,
+            ..Default::default()
+        };
+        let review = Review {
+            summary: " Thanks! ".into(),
+            findings: vec![
+                finding("inline", Some("a.rs"), Some(3)),
+                finding("file", Some("b.rs"), None),
+                finding("general", None, None),
+                finding("unpicked", None, None),
+            ],
+            ..Default::default()
+        };
+        let input = review_input("PR_1", Some("abc"), &review, &[0, 1, 2, 9], false, true);
+        assert_eq!(input["event"], "COMMENT");
+        assert_eq!(input["commitOID"], "abc");
+        assert_eq!(
+            input["threads"],
+            json!([{ "path": "a.rs", "line": 3, "side": "RIGHT", "body": "**inline**\n\nb" }])
+        );
+        assert_eq!(
+            input["body"],
+            "Thanks!\n\n**file** · `b.rs`\n\nb\n\n**general**\n\nb"
+        );
+        let all = review_input("PR_1", None, &review, &[0], true, false);
+        assert_eq!(all["event"], "APPROVE");
+        assert_eq!(all["threads"], json!([]));
+        assert_eq!(all["body"], "Thanks!\n\n**inline** · `a.rs:3`\n\nb");
+    }
 
     fn pr(author: &str, created: &str, timeline: Value) -> SearchPr {
         serde_json::from_value(json!({
