@@ -19,6 +19,7 @@ export type Action =
   | "hide"
   | "toggleHidden"
   | "toggleEmpty"
+  | "cycleRule"
   | "worktree"
   | "worktreeMenu"
   | "prevTab"
@@ -50,6 +51,7 @@ const SINGLE: Record<string, Action> = {
   x: "hide",
   H: "toggleHidden",
   e: "toggleEmpty",
+  t: "cycleRule",
   w: "worktree",
   W: "worktreeMenu",
   "[": "prevTab",
@@ -88,6 +90,7 @@ export const HELP: [string, string][] = [
   ["o", "open PR in browser"],
   ["Cmd-r", "refresh now"],
   ["u", "toggle unread"],
+  ["t", "inbox: next rule (all, then each rule)"],
   ["w", "open PR worktree (first open_with), or create it (worktrunk)"],
   ["W", "open PR worktree with… (all open_with entries)"],
   ["[ / ]", "previous / next PR tab (the PR, then each prompt)"],

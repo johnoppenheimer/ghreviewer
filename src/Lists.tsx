@@ -157,10 +157,13 @@ export function Inbox(
     focused: boolean;
     empty: string;
     now: number;
+    rules: string[];
+    rule: string;
+    onRule: (rule: string) => void;
     onSelect: (id: string) => void;
   },
 ) {
-  const { title, rows, selected, focused, empty, now, onSelect } = props;
+  const { title, rows, selected, focused, empty, now, rules, rule, onRule, onSelect } = props;
   const scrollRef = useScrollToSelected(selected);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
@@ -168,6 +171,19 @@ export function Inbox(
         <span className="grow">{title}</span>
         <span>{rows.filter((r) => !r.dim).length}</span>
       </div>
+      {rules.length > 1 && (
+        <div className="tabs" title="t: next rule">
+          {["", ...rules].map((r) => (
+            <button
+              key={r}
+              className={`tab ${r === rule ? "active" : ""}`}
+              onClick={() => onRule(r)}
+            >
+              {r || "all"}
+            </button>
+          ))}
+        </div>
+      )}
       <FilterInput {...props} />
       <div className="scroll" ref={scrollRef}>
         {rows.length === 0 && <div className="empty">{empty}</div>}

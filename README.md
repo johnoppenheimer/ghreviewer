@@ -74,6 +74,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `/`, `Esc`          | filter the focused list, clear it                          |
 | `o`                 | open the PR in the browser                                 |
 | `u`                 | toggle unread                                              |
+| `t`                 | show all rules in the inbox, then only each rule in turn   |
 | `Cmd-R`             | sync now                                                   |
 | `w` / `W`           | open the PR's worktree (or create it) / choose how to open |
 | `[` / `]`           | previous / next PR tab (the PR, then each prompt)          |

@@ -142,6 +142,8 @@ export default function App() {
   const [sideKey, setSideKey] = useState("all");
   const [prId, setPrId] = useState<string | null>(null);
   const [filters, setFilters] = usePersisted("filters", ["", ""]);
+  // Inbox rule tab: "" for all rules, else a rule name.
+  const [ruleName, setRuleName] = usePersisted("rule", "");
   const [filterOpen, setFilterOpen] = useState<number | null>(null);
   const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings">(null);
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -192,8 +194,16 @@ export default function App() {
       style.setProperty(`--${k}`, v);
   }, [config]);
 
+  const ruleNames = useMemo(() => config?.rules.map((r) => r.name) ?? [], [config]);
+  // A renamed or removed rule falls back to all.
+  const rule = ruleNames.includes(ruleName) ? ruleName : "";
+  const cycleRule = () => {
+    const all = ["", ...ruleNames];
+    setRuleName(all[(all.indexOf(rule) + 1) % all.length]);
+  };
   // The inbox proper; `context` PRs only show as greyed stack parents.
-  const mine = useMemo(() => inbox.filter((pr) => !pr.context), [inbox]);
+  const inRule = (pr: PrSummary) => !pr.context && (!rule || pr.rules.includes(rule));
+  const mine = useMemo(() => inbox.filter(inRule), [inbox, rule]);
   const items = useMemo(
     () => [
       ...sidebarItems({
@@ -219,9 +229,9 @@ export default function App() {
     () =>
       stackRows(
         inbox,
-        (pr) => !pr.context && inScope(pr, side.key) && matchesFilter(pr, filters[1]),
+        (pr) => inRule(pr) && inScope(pr, side.key) && matchesFilter(pr, filters[1]),
       ),
-    [inbox, side.key, filters],
+    [inbox, side.key, filters, rule],
   );
   const prs = useMemo(() => rows.map((r) => r.pr), [rows]);
   const prIdx = Math.max(
@@ -349,6 +359,7 @@ export default function App() {
     if (!target || !prompts.some((p) => p.name === run.prompt))
       return fire(api.markRunSeen(run.prId, run.prompt));
     if (!matchesFilter(target, filters[1])) setFilter(1, "");
+    if (!inRule(target)) setRuleName("");
     setSideKey("all");
     setPrId(run.prId);
     setTabName(run.prompt);
@@ -474,6 +485,8 @@ export default function App() {
         return tabPrompt && selected && fire(api.continueRun(selected.id, tabPrompt.name));
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
+      case "cycleRule":
+        return cycleRule();
       case "collapse":
         if (focus === 2 && pickable) return togglePick(cursor);
         if (focus !== 0 || side.kind !== "org") return;
@@ -604,6 +617,9 @@ export default function App() {
         focused={focus === 1}
         empty={empty}
         now={now}
+        rules={ruleNames}
+        rule={rule}
+        onRule={setRuleName}
         filter={filters[1]}
         filterOpen={filterOpen === 1}
         onFilter={(v) => setFilter(1, v)}
