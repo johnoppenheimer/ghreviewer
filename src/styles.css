@@ -625,6 +625,7 @@ details[open] > summary::before {
   overflow: hidden;
 }
 .status .grow {
+  flex: 1 0 auto;
   text-align: right;
 }
 .status {
@@ -632,6 +633,19 @@ details[open] > summary::before {
 }
 .status > span {
   position: relative;
+}
+/* Opens the full error; cut with an ellipsis so the hints on the right stay. */
+.status-error {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fail);
+}
+.error-text {
+  user-select: text;
+  cursor: text;
+  overflow-wrap: anywhere;
 }
 /* A bg-colored halo keeps text readable while the blocks stay visible around it. */
 .status.syncing {

@@ -149,6 +149,29 @@ export function Approve({ pr, onClose }: { pr: PrDetail; onClose: () => void }) 
   );
 }
 
+/** A status bar error in full (the bar cuts long ones), to read and copy. */
+export function ErrorDetail({ text, onClose }: { text: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () =>
+    navigator.clipboard.writeText(text).then(
+      () => setCopied(true),
+      () => {}, // no clipboard access: the text can still be selected
+    );
+  return (
+    <Overlay title="Error" onClose={onClose}>
+      <div className="panel-body">
+        <pre className="run-error fail error-text">{text}</pre>
+        <div className="actions">
+          <button onClick={onClose}>close (esc)</button>
+          <button autoFocus onClick={copy}>
+            {copied ? "copied" : "copy"}
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
 const lines = (text: string) =>
   text
     .split(/[\n,]/)

@@ -17,7 +17,7 @@ import {
   stackRows,
   step,
 } from "./model";
-import { Approve, type Command, Help, Palette, Settings } from "./Overlays";
+import { Approve, type Command, ErrorDetail, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
 import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
@@ -160,7 +160,11 @@ export default function App() {
   // Inbox rule tab: "" for all rules, else a rule name.
   const [ruleName, setRuleName] = usePersisted("rule", "");
   const [filterOpen, setFilterOpen] = useState<number | null>(null);
-  const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings" | "approve">(null);
+  const [overlay, setOverlay] = useState<
+    null | "help" | "palette" | "settings" | "approve" | "error"
+  >(null);
+  // The error the overlay opened on: the next sync can clear or replace it.
+  const [shownError, setShownError] = useState("");
   // The PR the approve overlay opened on: a sync can change the selection while you type.
   const [toApprove, setToApprove] = useState<PrDetail>();
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -732,7 +736,18 @@ export default function App() {
                 : "not synced"}
         </span>
         {status?.rateRemaining != null && <span>api {status.rateRemaining}</span>}
-        {error && <span className="fail">{error}</span>}
+        {error && (
+          <button
+            className="head-btn status-error"
+            title="Show the full error"
+            onClick={() => {
+              setShownError(error);
+              setOverlay("error");
+            }}
+          >
+            {error}
+          </button>
+        )}
         <span className="grow">? help · : commands</span>
       </div>
       {overlay === "help" && <Help onClose={() => setOverlay(null)} />}
@@ -742,6 +757,7 @@ export default function App() {
       {overlay === "settings" && config && (
         <Settings config={config} onClose={() => setOverlay(null)} />
       )}
+      {overlay === "error" && <ErrorDetail text={shownError} onClose={() => setOverlay(null)} />}
       {overlay === "approve" && toApprove && (
         <Approve pr={toApprove} onClose={() => setOverlay(null)} />
       )}
