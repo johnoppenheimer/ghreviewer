@@ -456,6 +456,7 @@ query($id: ID!, $after: String) {{
         nodes {{ requestedReviewer {{ ... on User {{ login }} ... on Bot {{ login }} ... on Team {{ name }} }} }}
       }}
       latestReviews(first: 30) {{ nodes {{ author {{ login }} state submittedAt }} }}
+      latestOpinionatedReviews(first: 30) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
       commits(last: 1) {{
         nodes {{ commit {{ statusCheckRollup {{ state
           contexts(first: 100) {{ nodes {{
@@ -644,6 +645,11 @@ mod tests {
         let body_only = review_input("PR_1", Some("abc"), &review, &[1], false, true);
         assert_eq!(body_only["commitOID"], Value::Null);
         assert_eq!(all["body"], "Thanks!\n\n**inline** · `a.rs:3`\n\nb");
+        // `approve_pr`: an empty review is a plain approval of the current head.
+        assert_eq!(
+            review_input("PR_1", None, &Review::default(), &[], true, true),
+            json!({ "pullRequestId": "PR_1", "commitOID": null, "event": "APPROVE", "body": "", "threads": [] })
+        );
     }
 
     fn pr(author: &str, created: &str, timeline: Value) -> SearchPr {

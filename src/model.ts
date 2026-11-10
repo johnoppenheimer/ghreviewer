@@ -1,4 +1,4 @@
-import type { PrSummary, Run } from "./api";
+import type { PrDetail, PrSummary, Run } from "./api";
 
 export type SideItem =
   | { key: string; kind: "run"; run: Run }
@@ -167,6 +167,17 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
 export function matchesFilter(pr: PrSummary, filter: string): boolean {
   const f = filter.toLowerCase();
   return !f || `${pr.repo}#${pr.number} ${pr.title} ${pr.author}`.toLowerCase().includes(f);
+}
+
+/**
+ * Whether `viewer` can approve the PR: open, someone else's, and its head not approved by them yet.
+ * Uses their latest opinionated review, because replying to a thread after approving makes a
+ * newer "commented" review that doesn't undo the approval.
+ */
+export function canApprove(pr: PrDetail, viewer: string | null | undefined): boolean {
+  if (!viewer || pr.state !== "OPEN" || pr.author?.login === viewer) return false;
+  const mine = pr.latestOpinionatedReviews?.nodes.find((r) => r?.author?.login === viewer);
+  return !(mine?.state === "APPROVED" && mine.commit?.oid === pr.headRefOid);
 }
 
 /** Index after moving `delta` from `current` (clamped), or jumping to an end with ±Infinity. */

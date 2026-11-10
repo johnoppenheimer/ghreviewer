@@ -170,6 +170,12 @@ export type PrDetail = {
   assignees: Nodes<{ login: string }>;
   reviewRequests: Nodes<{ requestedReviewer: Reviewer }>;
   latestReviews: Nodes<{ author: Login; state: string; submittedAt: string | null }>;
+  /** Each reviewer's latest approval or change request. Missing from details cached before it. */
+  latestOpinionatedReviews?: Nodes<{
+    author: Login;
+    state: string;
+    commit: { oid: string } | null;
+  }>;
   commits: Nodes<{
     commit: { statusCheckRollup: { state: string; contexts: Nodes<Check> } | null };
   }>;
@@ -218,5 +224,6 @@ export const api = {
   continueRun: (prId: string, prompt: string) => invoke<void>("continue_run", { prId, prompt }),
   postReview: (prId: string, prompt: string, picked: number[], approve: boolean) =>
     invoke<void>("post_review", { prId, prompt, picked, approve }),
+  approve: (id: string) => invoke<void>("approve_pr", { id }),
   openPath: (prId: string, path: string) => invoke<void>("open_path", { prId, path }),
 };

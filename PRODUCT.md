@@ -14,7 +14,7 @@ A developer who works in GitHub pull requests every day: first the author, later
 
 ## Product Purpose
 
-A local-only macOS desktop app to triage and read the GitHub PRs that concern the user. Success: in a few keystrokes the user knows what needs attention, has read the new activity, and has moved on, without opening the browser. Reviewing code (diffs, comments, approvals) stays on GitHub; `o` opens the PR there.
+A local-only macOS desktop app to triage and read the GitHub PRs that concern the user. Success: in a few keystrokes the user knows what needs attention, has read the new activity, and has moved on, without opening the browser. Reviewing code (diffs, comments) stays on GitHub; `o` opens the PR there.
 
 ## Positioning
 
@@ -32,7 +32,7 @@ A local-only macOS desktop app to triage and read the GitHub PRs that concern th
 
 ## Capabilities and Constraints
 
-- Read-only. No write actions, diff/files view, GitHub Enterprise, Linux/Windows, keymap remapping, OS notifications, per-rule filters, resizable columns, or list virtualization in the MVP.
+- Read-only, except approving a PR and posting an agent's findings as a review. No other write actions, diff/files view, GitHub Enterprise, Linux/Windows, keymap remapping, OS notifications, per-rule filters, resizable columns, or list virtualization in the MVP.
 - PR content is GitHub's own `bodyHTML`, sanitized with DOMPurify. Links open in the system browser.
 - Themes are user-defined in config through a fixed set of keys (`bg`, `fg`, `dim`, `accent`, `border`, `unread`, `ok`, `fail`, `font`). Dark and light ship by default.
 - Font: system monospace only (`ui-monospace, "SF Mono", Menlo, monospace`); nothing bundled.

@@ -5,7 +5,7 @@ mod github;
 mod local;
 mod sync;
 
-use agent::{Run, RunStatus};
+use agent::{Review, Run, RunStatus};
 use anyhow::Context;
 use config::{Config, Prompt, Settings};
 use db::Db;
@@ -586,6 +586,18 @@ async fn post_review(
     Ok(())
 }
 
+/// Approves a PR's current head with no comment, then refreshes it to show the approval.
+#[tauri::command]
+async fn approve_pr(app: AppHandle, st: State<'_, Arc<AppState>>, id: String) -> Res<()> {
+    sync::post_review(&st.gh, &id, None, &Review::default(), &[], true)
+        .await
+        .map_err(err)?;
+    if let Ok(detail) = refresh_detail(&st, &id).await {
+        let _ = app.emit("pr-updated", json!({ "id": id, "detail": detail }));
+    }
+    Ok(())
+}
+
 /// Posts the page's height to the app, so its iframe can show it whole.
 /// Measures the body's children (with what spills out of them): the document height would follow
 /// `min-height: 100vh` and grow along with the iframe forever.
@@ -723,6 +735,7 @@ pub fn run() {
             cancel_run,
             continue_run,
             post_review,
+            approve_pr,
             open_path,
         ])
         .run(tauri::generate_context!())

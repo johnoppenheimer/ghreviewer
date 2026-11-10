@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { PrSummary } from "./api";
+import type { PrDetail, PrSummary } from "./api";
 import { createKeymap } from "./keys";
-import { inScope, relTime, sidebarItems, stackRows, step } from "./model";
+import { canApprove, inScope, relTime, sidebarItems, stackRows, step } from "./model";
 
 const key = (
   k: string,
@@ -112,6 +112,22 @@ test("scope, step, relTime", () => {
   expect(relTime("2026-01-09T23:59:30Z", now)).toBe("now");
   expect(relTime("2026-01-09T21:00:00Z", now)).toBe("3h");
   expect(relTime("2026-01-07T00:00:00Z", now)).toBe("3d");
+});
+
+test("canApprove: open, not mine, head not approved by me yet", () => {
+  const pr = (extra: Partial<PrDetail> = {}) =>
+    ({ state: "OPEN", headRefOid: "h2", author: { login: "bob" }, ...extra }) as PrDetail;
+  const mine = (state: string, oid: string) => ({
+    latestOpinionatedReviews: { nodes: [{ author: { login: "me" }, state, commit: { oid } }] },
+  });
+  expect(canApprove(pr(), "me")).toBe(true);
+  expect(canApprove(pr(), null)).toBe(false);
+  expect(canApprove(pr({ author: { login: "me" } }), "me")).toBe(false);
+  expect(canApprove(pr({ state: "MERGED" }), "me")).toBe(false);
+  expect(canApprove(pr(mine("APPROVED", "h2")), "me")).toBe(false);
+  // New commits since, or changes requested: approve again.
+  expect(canApprove(pr(mine("APPROVED", "h1")), "me")).toBe(true);
+  expect(canApprove(pr(mine("CHANGES_REQUESTED", "h2")), "me")).toBe(true);
 });
 
 test("stackRows nests stacks as a tree and dims ancestors that aren't shown", () => {

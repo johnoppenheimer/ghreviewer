@@ -8,7 +8,7 @@ A local macOS app for triaging and reading the GitHub pull requests that concern
 - **Worktrees.** See whether a PR is checked out locally, create a worktree for it, and open it in your editor or terminal.
 - **Agent prompts.** Run your own prompts with [opencode](https://opencode.ai) or [Claude Code](https://claude.com/claude-code) on a PR's worktree, and read the answer (with any HTML, SVG or image files it makes) in a tab next to the PR. A review prompt can return findings you pick and post as a GitHub review.
 
-Reading diffs and replying to threads stays on GitHub: `o` opens the PR there. The only thing the app writes to GitHub is a review you post from an agent's findings.
+Reading diffs and replying to threads stays on GitHub: `o` opens the PR there. The app only writes to GitHub when you approve a PR or post a review from an agent's findings.
 
 Everything runs on your Mac. The app talks to the GitHub API directly with your `gh` login and keeps a local cache. There is no server and no account.
 
@@ -59,6 +59,7 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
 
 - **Syncing.** The inbox syncs every `poll_interval_secs` (and on `Cmd-R`). The repo list syncs hourly. Details of new unread PRs are fetched ahead of time, so opening them is instant.
 - **Unread.** Opening a PR marks it read. `u` toggles it.
+- **Approving.** On the PR tab, `approve` after the reviewers (or `approve PR` in the `:` palette) approves the PR on GitHub, with no comment. It shows on other people's open PRs until you've approved their latest commit.
 - **Wide windows.** In a window wider than a full-size 14" MacBook Pro screen, the PR tab splits: description on the left, conversation on the right.
 
 ### Keys
@@ -204,7 +205,7 @@ args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Ba
 
 - **Token.** The GitHub token comes from `gh auth token` and is kept in memory only.
 - **Cache.** The inbox, PR details, read state and agent results live in `~/Library/Application Support/ghreviewer/cache.db`. Agent output folders are in `runs/` next to it. Deleting them is safe: the app re-syncs, but read state and past results are lost.
-- **Network.** The app only talks to `api.github.com`, and only reads, except when you post a review. Agents talk to whatever their harness uses.
+- **Network.** The app only talks to `api.github.com`, and only reads, except when you approve a PR or post a review. Agents talk to whatever their harness uses.
 
 ## Development
 

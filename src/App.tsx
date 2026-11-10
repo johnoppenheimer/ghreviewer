@@ -5,7 +5,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type PrDetail, type PrSummary, type Repo, type Run, api } from "./api";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
-import { inScope, matchesFilter, relTime, runItems, sidebarItems, stackRows, step } from "./model";
+import {
+  canApprove,
+  inScope,
+  matchesFilter,
+  relTime,
+  runItems,
+  sidebarItems,
+  stackRows,
+  step,
+} from "./model";
 import { type Command, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
 import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
@@ -403,6 +412,27 @@ export default function App() {
       picked: picked.flatMap((v, i) => (v ? [i] : [])),
       approve,
     });
+  // Approving straight from the PR tab, without a prompt.
+  const approval = useMutation({
+    mutationFn: (id: string) => api.approve(id),
+    onError: (e) => setUiError(String(e)),
+  });
+  const approvable = tab === 0 && !!pr && canApprove(pr, status?.viewer) && !approval.isPending;
+  const approvePr = () => approvable && approval.mutate(pr.id);
+  let approveBtn = null;
+  if (approval.isPending && approval.variables === pr?.id)
+    approveBtn = (
+      <span className="warn with-spinner">
+        <PixelSpinner />
+        approving…
+      </span>
+    );
+  else if (approvable)
+    approveBtn = (
+      <button className="head-btn" title="Approve on GitHub, with no comment" onClick={approvePr}>
+        approve
+      </button>
+    );
   const tabs = tabNames.map((name) =>
     name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
@@ -545,6 +575,7 @@ export default function App() {
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "open PR in browser", run: openSelected },
     { label: "toggle unread", run: toggleUnread },
+    ...(approvable ? [{ label: "approve PR", run: approvePr }] : []),
     ...(wt?.path
       ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
       : []),
@@ -651,6 +682,7 @@ export default function App() {
         paneRef={paneRef}
         headRight={wtHead}
         headState={headState}
+        approve={approveBtn}
         tabs={tabs}
         tab={tab}
         tabBody={tabBody}

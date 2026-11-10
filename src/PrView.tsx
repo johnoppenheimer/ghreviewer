@@ -205,7 +205,7 @@ function ThreadView({ t, now }: { t: Thread; now: number }) {
   );
 }
 
-function Detail({ pr, now }: { pr: PrDetail; now: number }) {
+function Detail({ pr, now, approve }: { pr: PrDetail; now: number; approve: ReactNode }) {
   const [badge, badgeCls] = stateBadge(pr);
   const labels = list(pr.labels);
   const assignees = list(pr.assignees);
@@ -228,7 +228,9 @@ function Detail({ pr, now }: { pr: PrDetail; now: number }) {
       </div>
       <div className="meta">
         <span className="k">reviewers</span>
-        <Reviewers pr={pr} />
+        <span>
+          <Reviewers pr={pr} /> {approve}
+        </span>
         {assignees.length > 0 && (
           <>
             <span className="k">assignees</span>
@@ -302,6 +304,8 @@ export function PrView(props: {
   headRight: ReactNode;
   /** Header highlight: "busy" while creating a worktree, "done" right after. */
   headState: "" | "busy" | "done";
+  /** Approve button after the reviewers (PR tab). */
+  approve: ReactNode;
   /** Tab labels (the PR, then prompts); no bar when there's only the PR. */
   tabs: ReactNode[];
   tab: number;
@@ -311,7 +315,7 @@ export function PrView(props: {
   onFocus: () => void;
   onLink: (url: string) => void;
 }) {
-  const { summary, detail, error, focused, now, paneRef, headRight, headState } = props;
+  const { summary, detail, error, focused, now, paneRef, headRight, headState, approve } = props;
   const { tabs, tab, tabBody, onTab, onFocus, onLink } = props;
   return (
     <div className={`col ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
@@ -349,7 +353,7 @@ export function PrView(props: {
             <span className="dim">{summary.author}</span>
           </div>
         )}
-        {detail && (tabBody ?? <Detail key={detail.id} pr={detail} now={now} />)}
+        {detail && (tabBody ?? <Detail key={detail.id} pr={detail} now={now} approve={approve} />)}
       </div>
     </div>
   );
