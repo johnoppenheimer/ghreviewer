@@ -409,9 +409,13 @@ async fn run_task(
         run.activity
             .push(format!("creating worktree: wt switch pr:{}", pr.number));
         save_run(app, st, token, run, false);
-        local::create(&roots, &pr.repo, pr.number).await?;
+        let created = local::create(&roots, &pr.repo, pr.number).await;
         let _ = app.emit("worktree-created", ());
         wt = local::lookup(&roots, &pr.repo, &pr.branch).await?;
+        // Another prompt started at the same time may have made it first.
+        if wt.path.is_none() {
+            created?;
+        }
     }
     let path = wt.path.context("no worktree on the PR branch")?;
     let name = path.rsplit('/').next().unwrap_or_default();
@@ -419,6 +423,10 @@ async fn run_task(
         local::rebasing_branch(&path).is_none(),
         "{name} is in the middle of a rebase: finish it, then re-run"
     );
+    // The commit the agent will read: an existing worktree may be behind the PR's head.
+    if let Ok(oid) = local::head(&path).await {
+        run.head_oid = Some(oid);
+    }
     let out = st.data_dir.join("runs").join(run_dir(&pr.id, &spec.name)?);
     // Fresh for each run, so it only holds this run's files.
     let _ = std::fs::remove_dir_all(&out);
@@ -512,8 +520,7 @@ fn cancel_run(
         return Ok(());
     };
     task.abort(); // drops the harness process with it
-    let runs = st.db.runs(&pr_id).map_err(err)?;
-    if let Some(mut run) = runs.into_iter().find(|r| r.prompt == prompt) {
+    if let Some(mut run) = st.db.run(&pr_id, &prompt).map_err(err)? {
         run.status = RunStatus::Cancelled;
         run.finished_at = Some(now_ms());
         run.seen = true; // you cancelled it, nothing to catch up on
@@ -526,8 +533,7 @@ fn cancel_run(
 /// Reopens a run's agent session interactively with the `terminal` command.
 #[tauri::command]
 async fn continue_run(st: State<'_, Arc<AppState>>, pr_id: String, prompt: String) -> Res<()> {
-    let runs = st.db.runs(&pr_id).map_err(err)?;
-    let run = runs.into_iter().find(|r| r.prompt == prompt);
+    let run = st.db.run(&pr_id, &prompt).map_err(err)?;
     let run = run.ok_or("this prompt hasn't run on this PR")?;
     let command = agent::resume_command(&run).ok_or("no agent session to continue yet")?;
     let path = run.path.unwrap_or_default();
@@ -552,8 +558,7 @@ async fn post_review(
     approve: bool,
 ) -> Res<()> {
     let latest = || -> Res<Run> {
-        let runs = st.db.runs(&pr_id).map_err(err)?;
-        let run = runs.into_iter().find(|r| r.prompt == prompt);
+        let run = st.db.run(&pr_id, &prompt).map_err(err)?;
         run.ok_or_else(|| "this prompt hasn't run on this PR".into())
     };
     let run = latest()?;
@@ -590,19 +595,21 @@ async fn post_review(
     Ok(())
 }
 
-/// Approves a PR's current head, with an optional message, then refreshes it to show the approval.
+/// Approves the commit of a PR that was on screen (`head_oid`), with an optional message, then
+/// refreshes the PR to show the approval.
 #[tauri::command]
 async fn approve_pr(
     app: AppHandle,
     st: State<'_, Arc<AppState>>,
     id: String,
+    head_oid: String,
     body: String,
 ) -> Res<()> {
     let review = Review {
         summary: body,
         ..Default::default()
     };
-    sync::post_review(&st.gh, &id, None, &review, &[], true)
+    sync::post_review(&st.gh, &id, Some(&head_oid), &review, &[], true)
         .await
         .map_err(err)?;
     if let Ok(detail) = refresh_detail(&st, &id).await {
@@ -637,6 +644,12 @@ const FIT_SCRIPT: &str = r#"<script>(() => {
   document.fonts.ready.then(post);
 })();</script>"#;
 
+/// Agent pages get no network, so a page can't send out what the agent read. Google Fonts stay:
+/// diagrams use them, and a request there reaches nobody else.
+const RUN_FILE_CSP: &str = "default-src 'unsafe-inline' data: blob: runfile:; \
+    style-src 'unsafe-inline' runfile: https://fonts.googleapis.com; \
+    font-src data: runfile: https://fonts.gstatic.com; form-action 'none'";
+
 /// `runfile://localhost/<path>`: the asset protocol's files, with `FIT_SCRIPT` added to HTML.
 fn run_file(app: &AppHandle, uri: &tauri::http::Uri) -> tauri::http::Response<Vec<u8>> {
     let path = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
@@ -654,7 +667,10 @@ fn run_file(app: &AppHandle, uri: &tauri::http::Uri) -> tauri::http::Response<Ve
     } else {
         tauri::utils::mime_type::MimeType::parse(&body, &path)
     };
-    res.header("Content-Type", mime).body(body).unwrap()
+    res.header("Content-Type", mime)
+        .header("Content-Security-Policy", RUN_FILE_CSP)
+        .body(body)
+        .unwrap()
 }
 
 /// `ghimg://localhost/<owner>/<repo>/<ref>/<file>`: an image in a repo, fetched with the token.
@@ -684,7 +700,6 @@ fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<(
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

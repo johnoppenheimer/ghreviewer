@@ -47,7 +47,7 @@ function Reviewers({ pr }: { pr: PrDetail }) {
       {all.map(({ who, state }) => {
         const [label, cls] = REVIEW_LABEL[state] ?? [state.toLowerCase(), "dim"];
         return (
-          <span key={who} style={{ marginRight: 12 }}>
+          <span key={who + state} style={{ marginRight: 12 }}>
             {who} <span className={cls}>{label}</span>
           </span>
         );

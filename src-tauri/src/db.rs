@@ -153,6 +153,19 @@ impl Db {
         rows.map(|j| Ok(serde_json::from_str(&j?)?)).collect()
     }
 
+    /// Latest run of one prompt on a PR.
+    pub fn run(&self, pr_id: &str, prompt: &str) -> Result<Option<Run>> {
+        let json: Option<String> = self
+            .conn()
+            .query_row(
+                "SELECT json FROM runs WHERE pr_id = ?1 AND prompt = ?2",
+                [pr_id, prompt],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(json.map(|j| serde_json::from_str(&j)).transpose()?)
+    }
+
     pub fn put_run(&self, run: &Run) -> Result<()> {
         self.conn().execute(
             "INSERT OR REPLACE INTO runs (pr_id, prompt, json) VALUES (?1, ?2, ?3)",
@@ -376,6 +389,8 @@ mod tests {
             ]
         );
         assert!(db.runs("b").unwrap().is_empty());
+        assert_eq!(db.run("a", "diagram").unwrap().unwrap().prompt, "diagram");
+        assert!(db.run("a", "nope").unwrap().is_none());
 
         // Listed while running or unseen; marking a running one seen does nothing.
         db.put_run(&run("live", RunStatus::Running)).unwrap();

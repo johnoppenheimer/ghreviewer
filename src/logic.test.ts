@@ -1,7 +1,16 @@
 import { expect, test } from "bun:test";
 import type { PrDetail, PrSummary } from "./api";
 import { createKeymap } from "./keys";
-import { canApprove, ghImageSrc, inScope, relTime, sidebarItems, stackRows, step } from "./model";
+import {
+  canApprove,
+  ghImageSrc,
+  inScope,
+  relTime,
+  shouldMarkRead,
+  sidebarItems,
+  stackRows,
+  step,
+} from "./model";
 
 const key = (
   k: string,
@@ -184,4 +193,16 @@ test("stackRows nests stacks as a tree and dims ancestors that aren't shown", ()
   expect(g(23)).toEqual({ depth: 2, last: true, down: false, through: [0] });
   expect(g(22)).toEqual({ depth: 1, last: true, down: false, through: [] });
   expect(stackRows(all, (p) => p.number === 5).map((r) => r.pr.number)).toEqual([5]);
+});
+
+test("shouldMarkRead: only an unread PR you picked, and not while browsing repos", () => {
+  const unread = { id: "a", unread: true } as PrSummary;
+  expect(shouldMarkRead(unread, "a", 1)).toBe(true);
+  expect(shouldMarkRead(unread, "a", 2)).toBe(true);
+  expect(shouldMarkRead(unread, "a", 0)).toBe(false);
+  // The first row shown because nothing is picked, or the picked PR left the inbox.
+  expect(shouldMarkRead(unread, null, 1)).toBe(false);
+  expect(shouldMarkRead(unread, "gone", 1)).toBe(false);
+  expect(shouldMarkRead({ ...unread, unread: false }, "a", 1)).toBe(false);
+  expect(shouldMarkRead(null, null, 1)).toBe(false);
 });

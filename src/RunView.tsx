@@ -47,11 +47,22 @@ export function TabLabel({ name, run, stale }: { name: string; run?: Run; stale:
   );
 }
 
+// Agent text gets nothing that loads a URL: a remote address could carry out what the agent read.
+const AGENT_MD = {
+  RETURN_DOM: true as const,
+  FORBID_TAGS: ["style", "svg", "math", "picture", "source", "input", "video", "audio"],
+  FORBID_ATTR: ["style", "srcset", "poster", "background"],
+};
+
 function Markdown({ text }: { text: string }) {
-  const html = useMemo(
-    () => DOMPurify.sanitize(marked.parse(text, { async: false, gfm: true })),
-    [text],
-  );
+  const html = useMemo(() => {
+    const md = marked.parse(text, { async: false, gfm: true });
+    const dom = DOMPurify.sanitize(md, AGENT_MD) as HTMLElement;
+    // Repo images (rewritten to ghimg:// by the hook in PrView) and inline ones stay.
+    for (const img of dom.querySelectorAll("img"))
+      if (!/^(ghimg|data):/.test(img.getAttribute("src") ?? "")) img.remove();
+    return dom.innerHTML;
+  }, [text]);
   return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

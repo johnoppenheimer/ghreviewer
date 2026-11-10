@@ -1,5 +1,8 @@
 use crate::agent::Review;
-use crate::{config::Rule, github::Github};
+use crate::{
+    config::Rule,
+    github::{Github, Rejected},
+};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -557,8 +560,9 @@ fn review_input(
     }
     json!({
         "pullRequestId": pr_id,
-        // Only inline lines need the commit the agent read, and it may be gone after a force-push.
-        "commitOID": if threads.is_empty() { None } else { head_oid },
+        // Inline lines and approvals go on the commit that was read. A plain comment doesn't
+        // need it, and it may be gone after a force-push.
+        "commitOID": if threads.is_empty() && !approve { None } else { head_oid },
         "event": if approve { "APPROVE" } else { "COMMENT" },
         "body": body.join("\n\n"),
         "threads": threads,
@@ -594,9 +598,9 @@ pub async fn post_review(
     let has_inline = input["threads"].as_array().is_some_and(|t| !t.is_empty());
     match send(input).await {
         Ok(url) => Ok((url, false)),
-        // GitHub answered, so no review was made: usually a line outside the diff, which fails
-        // the whole review. Not on network errors: the review may exist despite a timeout.
-        Err(e) if has_inline && e.downcast_ref::<reqwest::Error>().is_none() => {
+        // GitHub rejected it, so no review was made: usually a line outside the diff, which fails
+        // the whole review. Not on timeouts or 5xx: the review may exist despite them.
+        Err(e) if has_inline && e.is::<Rejected>() => {
             let input = review_input(pr_id, head_oid, review, picked, approve, false);
             Ok((send(input).await?, true))
         }
@@ -639,9 +643,11 @@ mod tests {
             input["body"],
             "Thanks!\n\n**file** · `b.rs`\n\nb\n\n**general**\n\nb"
         );
-        let all = review_input("PR_1", None, &review, &[0], true, false);
+        let all = review_input("PR_1", Some("abc"), &review, &[0], true, false);
         assert_eq!(all["event"], "APPROVE");
         assert_eq!(all["threads"], json!([]));
+        // An approval stays on the commit that was read, even with nothing inline.
+        assert_eq!(all["commitOID"], "abc");
         let body_only = review_input("PR_1", Some("abc"), &review, &[1], false, true);
         assert_eq!(body_only["commitOID"], Value::Null);
         assert_eq!(all["body"], "Thanks!\n\n**inline** · `a.rs:3`\n\nb");

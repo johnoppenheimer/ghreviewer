@@ -36,7 +36,7 @@ A local-only macOS desktop app to triage and read the GitHub PRs that concern th
 - PR content is GitHub's own `bodyHTML`, sanitized with DOMPurify. Links open in the system browser.
 - Themes are user-defined in config through a fixed set of keys (`bg`, `fg`, `dim`, `accent`, `border`, `unread`, `ok`, `fail`, `font`). Dark and light ship by default.
 - Font: system monospace only (`ui-monospace, "SF Mono", Menlo, monospace`); nothing bundled.
-- Fixed keymap: see `PLAN.md`.
+- Fixed keymap: see `README.md`.
 - Known limits: search returns at most 1000 results per rule; images in private-repo bodies may not load; the rate limit is shown in the status bar.
 - Open decision: how it will be distributed to other developers.
 
@@ -47,7 +47,7 @@ A local-only macOS desktop app to triage and read the GitHub PRs that concern th
 
 ## Evidence on Hand
 
-- `PLAN.md`: full MVP plan, keymap, data flow, and status.
+- `README.md` and `AGENTS.md`: features, keymap and architecture.
 - No users, testimonials, screenshots, or metrics beyond the author's own use. Do not invent them.
 
 ## Product Principles

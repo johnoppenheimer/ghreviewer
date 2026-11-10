@@ -11,6 +11,7 @@ import {
   matchesFilter,
   relTime,
   runItems,
+  shouldMarkRead,
   sidebarItems,
   stackRows,
   step,
@@ -262,10 +263,9 @@ export default function App() {
 
   const browsingRepos = focus === 0;
   useEffect(() => {
-    if (selected?.unread && !browsingRepos) fire(api.setUnread(selected.id, false));
+    if (selected && shouldMarkRead(selected, prId, focus)) fire(api.setUnread(selected.id, false));
     // Only on opening a PR or on new activity while it's open, so `u` sticks.
-    // Not while moving through repos: that only previews each repo's first PR.
-  }, [selected?.id, selected?.lastOthersActivityAt, browsingRepos]);
+  }, [selected?.id, selected?.lastOthersActivityAt, prId, browsingRepos]);
 
   useEffect(() => paneRef.current?.scrollTo({ top: 0 }), [selected?.id]);
 
@@ -471,6 +471,8 @@ export default function App() {
       case "right":
       case "enter":
         if (focus === 0 && side.kind === "run") return openRun(side.run);
+        // Moving towards the shown PR picks it.
+        if (selected) setPrId(selected.id);
         return setFocus((f) => Math.min(2, f + 1));
       case "pageDown":
       case "pageUp":
@@ -682,7 +684,10 @@ export default function App() {
         tab={tab}
         tabBody={tabBody}
         onTab={switchTab}
-        onFocus={() => setFocus(2)}
+        onFocus={() => {
+          if (selected) setPrId(selected.id);
+          setFocus(2);
+        }}
         onLink={(url) => fire(openUrl(url))}
       />
       <div className={`status ${status?.syncing ? "syncing" : ""}`}>

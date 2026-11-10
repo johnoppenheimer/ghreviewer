@@ -22,6 +22,19 @@ struct GqlError {
     message: String,
 }
 
+/// GitHub answered a mutation with errors, so it changed nothing. Unlike a timeout or a 5xx,
+/// where the change may have gone through.
+#[derive(Debug)]
+pub struct Rejected(String);
+
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GitHub: {}", self.0)
+    }
+}
+
+impl std::error::Error for Rejected {}
+
 impl Github {
     pub fn new() -> Self {
         Self {
@@ -60,7 +73,7 @@ impl Github {
     pub async fn mutate<T: DeserializeOwned>(&self, query: &str, variables: Value) -> Result<T> {
         match self.send(query, variables).await? {
             (Some(data), errors) if errors.is_empty() => Ok(data),
-            (_, errors) => bail!("GitHub: {errors}"),
+            (_, errors) => Err(Rejected(errors).into()),
         }
     }
 
@@ -128,8 +141,7 @@ impl Github {
 }
 
 async fn gh_token() -> Result<String> {
-    let out = crate::local::command("gh")
-        .args(["auth", "token"])
+    let out = crate::local::login_command(&["gh", "auth", "token"].map(String::from))
         .output()
         .await
         .context("GitHub CLI `gh` not found. Install it and run `gh auth login`.")?;
@@ -139,5 +151,7 @@ async fn gh_token() -> Result<String> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_string())
+    // The last line: a login file may print before `gh` runs.
+    let out = String::from_utf8(out.stdout)?;
+    Ok(out.lines().last().unwrap_or_default().trim().to_string())
 }

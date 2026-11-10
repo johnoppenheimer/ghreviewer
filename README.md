@@ -20,7 +20,7 @@ Everything runs on your Mac. The app talks to the GitHub API directly with your 
   - [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`) to create worktrees from the app.
   - `opencode` or `claude` for agent prompts.
 
-The app finds these tools through your login shell's `PATH`, so anything your terminal finds, it finds too.
+The app finds these tools through your login shell's `PATH`. A login shell doesn't read `~/.zshrc`, so if a tool isn't found, set its `PATH` in `~/.zprofile`.
 
 ## Install
 

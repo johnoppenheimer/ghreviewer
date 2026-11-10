@@ -224,6 +224,8 @@ export const api = {
   continueRun: (prId: string, prompt: string) => invoke<void>("continue_run", { prId, prompt }),
   postReview: (prId: string, prompt: string, picked: number[], approve: boolean) =>
     invoke<void>("post_review", { prId, prompt, picked, approve }),
-  approve: (id: string, body: string) => invoke<void>("approve_pr", { id, body }),
+  /** Approves the commit that was on screen, not whatever the head is by now. */
+  approve: (pr: PrDetail, body: string) =>
+    invoke<void>("approve_pr", { id: pr.id, headOid: pr.headRefOid, body }),
   openPath: (prId: string, path: string) => invoke<void>("open_path", { prId, path }),
 };

@@ -180,6 +180,19 @@ export function canApprove(pr: PrDetail, viewer: string | null | undefined): boo
   return !(mine?.state === "APPROVED" && mine.commit?.oid === pr.headRefOid);
 }
 
+/**
+ * Whether showing `selected` should mark it read: only a PR you picked (`prId`). The first row
+ * also shows when nothing is picked or the picked PR left the inbox, and each sync can change it.
+ * Not while moving through repos (`focus` 0) either: that only previews each repo's first PR.
+ */
+export function shouldMarkRead(
+  selected: PrSummary | null,
+  prId: string | null,
+  focus: number,
+): boolean {
+  return !!selected?.unread && selected.id === prId && focus !== 0;
+}
+
 /** Index after moving `delta` from `current` (clamped), or jumping to an end with ±Infinity. */
 export function step(len: number, current: number, delta: number): number {
   if (len === 0) return -1;

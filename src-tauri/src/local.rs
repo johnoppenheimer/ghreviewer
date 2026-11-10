@@ -111,12 +111,22 @@ pub fn rebasing_branch(worktree: &str) -> Option<String> {
         .map(|name| name.trim().to_string())
 }
 
+/// Commit checked out in a worktree.
+pub async fn head(worktree: &str) -> Result<String> {
+    let out = command("git")
+        .args(["-C", worktree, "rev-parse", "HEAD"])
+        .output()
+        .await
+        .context("running git")?;
+    anyhow::ensure!(out.status.success(), "git rev-parse HEAD failed");
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// Checked once: installing worktrunk needs an app restart to show up.
 async fn wt_installed() -> bool {
     static WT: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
     *WT.get_or_init(|| async {
-        command("wt")
-            .arg("--version")
+        login_command(&["wt", "--version"].map(String::from))
             .output()
             .await
             .is_ok_and(|o| o.status.success())
@@ -149,10 +159,10 @@ pub async fn lookup(roots: &[String], repo: &str, branch: &str) -> Result<Worktr
 /// `wt switch pr:<number>` in the repo's clone, running the user's worktrunk hooks.
 pub async fn create(roots: &[String], repo: &str, number: u64) -> Result<()> {
     let clone = find_clone(roots, repo).with_context(|| format!("no local clone of {repo}"))?;
-    let out = command("wt")
-        .arg("-C")
-        .arg(&clone)
-        .args(["switch", &format!("pr:{number}"), "--no-cd", "--yes"])
+    let clone = clone.display().to_string();
+    let pr = format!("pr:{number}");
+    let args = ["wt", "-C", &clone, "switch", &pr, "--no-cd", "--yes"].map(String::from);
+    let out = login_command(&args)
         .output()
         .await
         .context("running worktrunk (`wt`)")?;
@@ -169,7 +179,12 @@ pub async fn create(roots: &[String], repo: &str, number: u64) -> Result<()> {
 pub fn login_command(args: &[String]) -> Command {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let mut cmd = command(&shell);
-    cmd.args(["-lc", r#"exec "$@""#, "ghreviewer"]).args(args);
+    if shell.ends_with("fish") {
+        // fish has no `$@`, and passes the arguments after the script as `$argv`.
+        cmd.args(["-lc", "exec $argv"]).args(args);
+    } else {
+        cmd.args(["-lc", r#"exec "$@""#, "ghreviewer"]).args(args);
+    }
     cmd
 }
 
@@ -335,24 +350,5 @@ mod tests {
         );
         assert_eq!(find_clone(&roots, "ti/other"), None);
         std::fs::remove_dir_all(&root).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod live {
-    /// Real clones under ~/Documents/dev: `cargo test -- --ignored live_worktree --nocapture`.
-    #[tokio::test]
-    #[ignore]
-    async fn live_worktree() {
-        let roots = ["~/Documents/dev".to_string()];
-        let t = std::time::Instant::now();
-        let w = super::lookup(&roots, "thoughtindustries/ti", "feat/rbac-superadmin")
-            .await
-            .unwrap();
-        println!("{w:?} in {:?}", t.elapsed());
-        let w = super::lookup(&roots, "thoughtindustries/lens-ai", "nope")
-            .await
-            .unwrap();
-        println!("{w:?}");
     }
 }

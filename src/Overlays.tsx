@@ -108,7 +108,7 @@ export function Approve({ pr, onClose }: { pr: PrDetail; onClose: () => void }) 
     if (busy) return;
     setBusy(true);
     try {
-      await api.approve(pr.id, body);
+      await api.approve(pr, body);
       onClose();
     } catch (e) {
       setError(String(e));
