@@ -59,7 +59,7 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
 
 - **Syncing.** The inbox syncs every `poll_interval_secs` (and on `Cmd-R`). The repo list syncs hourly. Details of new unread PRs are fetched ahead of time, so opening them is instant.
 - **Unread.** Opening a PR marks it read. `u` toggles it.
-- **Approving.** On the PR tab, `approve` after the reviewers (or `approve PR` in the `:` palette) approves the PR on GitHub, with no comment. It shows on other people's open PRs until you've approved their latest commit.
+- **Approving.** On the PR tab, `a` (or `approve` after the reviewers, or `approve PR` in the `:` palette) asks for an optional message, then `⌘↵` approves the PR on GitHub. It's offered on other people's open PRs until you've approved their latest commit.
 - **Wide windows.** In a window wider than a full-size 14" MacBook Pro screen, the PR tab splits: description on the left, conversation on the right.
 
 ### Keys
@@ -75,6 +75,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `/`, `Esc`          | filter the focused list, clear it                          |
 | `o`                 | open the PR in the browser                                 |
 | `u`                 | toggle unread                                              |
+| `a`                 | approve the PR, with an optional message (PR tab)          |
 | `t`                 | show all rules in the inbox, then only each rule in turn   |
 | `Cmd-R`             | sync now                                                   |
 | `w` / `W`           | open the PR's worktree (or create it) / choose how to open |

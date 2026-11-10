@@ -586,10 +586,19 @@ async fn post_review(
     Ok(())
 }
 
-/// Approves a PR's current head with no comment, then refreshes it to show the approval.
+/// Approves a PR's current head, with an optional message, then refreshes it to show the approval.
 #[tauri::command]
-async fn approve_pr(app: AppHandle, st: State<'_, Arc<AppState>>, id: String) -> Res<()> {
-    sync::post_review(&st.gh, &id, None, &Review::default(), &[], true)
+async fn approve_pr(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    id: String,
+    body: String,
+) -> Res<()> {
+    let review = Review {
+        summary: body,
+        ..Default::default()
+    };
+    sync::post_review(&st.gh, &id, None, &review, &[], true)
         .await
         .map_err(err)?;
     if let Ok(detail) = refresh_detail(&st, &id).await {

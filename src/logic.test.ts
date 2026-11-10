@@ -29,6 +29,7 @@ test("keymap decodes vim keys and gg", () => {
   expect(km(key("r", { metaKey: true }))).toBe("refresh");
   expect(km(key("r"))).toBe("runPrompt");
   expect(km(key("}"))).toBe("nextFile");
+  expect(km(key("a"))).toBe("approve");
   expect(km(key("c", { metaKey: true }))).toBeNull();
 });
 

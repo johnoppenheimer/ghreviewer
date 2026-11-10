@@ -1,7 +1,8 @@
 import { type ReactNode, useState } from "react";
-import { type Config, type Rule, api } from "./api";
+import { type Config, type PrDetail, type Rule, api } from "./api";
 import { HELP } from "./keys";
 import { step } from "./model";
+import { PixelSpinner } from "./RunView";
 
 function Overlay({
   title,
@@ -72,8 +73,11 @@ export function Palette({
             const down = e.key === "ArrowDown" || (e.ctrlKey && e.key === "n");
             const up = e.key === "ArrowUp" || (e.ctrlKey && e.key === "p");
             if (e.key === "Escape") onClose();
-            else if (e.key === "Enter") run(shown[sel]);
-            else if (down || up) {
+            else if (e.key === "Enter") {
+              // Else its newline lands in a field the command focuses, like the approve message.
+              e.preventDefault();
+              run(shown[sel]);
+            } else if (down || up) {
               e.preventDefault();
               setIndex(step(shown.length, sel, down ? 1 : -1));
             }
@@ -89,6 +93,57 @@ export function Palette({
           </div>
         ))}
         {shown.length === 0 && <div className="empty">No command.</div>}
+      </div>
+    </Overlay>
+  );
+}
+
+/** Approves the PR on GitHub, with an optional message. Stays open with the message on failure. */
+export function Approve({ pr, onClose }: { pr: PrDetail; onClose: () => void }) {
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const approve = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.approve(pr.id, body);
+      onClose();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Overlay title={`Approve ${pr.repository.nameWithOwner}#${pr.number}`} onClose={onClose}>
+      <div className="panel-body" onKeyDown={(e) => e.key === "Enter" && e.metaKey && approve()}>
+        <div className="form">
+          <span className="dim">pr</span>
+          <span>{pr.title}</span>
+          <span className="dim">message</span>
+          <textarea
+            autoFocus
+            value={body}
+            placeholder="optional"
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </div>
+        {error && <div className="error">{error}</div>}
+        <div className="actions">
+          <button onClick={onClose}>cancel (esc)</button>
+          <button onClick={approve}>
+            {busy ? (
+              <span className="with-spinner">
+                <PixelSpinner />
+                approving…
+              </span>
+            ) : (
+              "approve (⌘↵)"
+            )}
+          </button>
+        </div>
       </div>
     </Overlay>
   );

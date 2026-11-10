@@ -15,7 +15,7 @@ import {
   stackRows,
   step,
 } from "./model";
-import { type Command, Help, Palette, Settings } from "./Overlays";
+import { Approve, type Command, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
 import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
@@ -154,7 +154,9 @@ export default function App() {
   // Inbox rule tab: "" for all rules, else a rule name.
   const [ruleName, setRuleName] = usePersisted("rule", "");
   const [filterOpen, setFilterOpen] = useState<number | null>(null);
-  const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings">(null);
+  const [overlay, setOverlay] = useState<null | "help" | "palette" | "settings" | "approve">(null);
+  // The PR the approve overlay opened on: a sync can change the selection while you type.
+  const [toApprove, setToApprove] = useState<PrDetail>();
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [showHidden, setShowHidden] = useState(false);
   const [onlyWithPrs, setOnlyWithPrs] = usePersisted("onlyWithPrs", false);
@@ -413,26 +415,17 @@ export default function App() {
       approve,
     });
   // Approving straight from the PR tab, without a prompt.
-  const approval = useMutation({
-    mutationFn: (id: string) => api.approve(id),
-    onError: (e) => setUiError(String(e)),
-  });
-  const approvable = tab === 0 && !!pr && canApprove(pr, status?.viewer) && !approval.isPending;
-  const approvePr = () => approvable && approval.mutate(pr.id);
-  let approveBtn = null;
-  if (approval.isPending && approval.variables === pr?.id)
-    approveBtn = (
-      <span className="warn with-spinner">
-        <PixelSpinner />
-        approving…
-      </span>
-    );
-  else if (approvable)
-    approveBtn = (
-      <button className="head-btn" title="Approve on GitHub, with no comment" onClick={approvePr}>
-        approve
-      </button>
-    );
+  const approvable = tab === 0 && !!pr && canApprove(pr, status?.viewer);
+  const openApprove = () => {
+    if (!approvable) return;
+    setToApprove(pr);
+    setOverlay("approve");
+  };
+  const approveBtn = approvable && (
+    <button className="head-btn" onClick={openApprove}>
+      approve (a)
+    </button>
+  );
   const tabs = tabNames.map((name) =>
     name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
@@ -526,6 +519,8 @@ export default function App() {
         return tabPrompt && runPrompt(tabPrompt.name);
       case "continueRun":
         return tabPrompt && selected && fire(api.continueRun(selected.id, tabPrompt.name));
+      case "approve":
+        return openApprove();
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
       case "cycleRule":
@@ -575,7 +570,7 @@ export default function App() {
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "open PR in browser", run: openSelected },
     { label: "toggle unread", run: toggleUnread },
-    ...(approvable ? [{ label: "approve PR", run: approvePr }] : []),
+    ...(approvable ? [{ label: "approve PR", run: openApprove }] : []),
     ...(wt?.path
       ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
       : []),
@@ -710,6 +705,9 @@ export default function App() {
       )}
       {overlay === "settings" && config && (
         <Settings config={config} onClose={() => setOverlay(null)} />
+      )}
+      {overlay === "approve" && toApprove && (
+        <Approve pr={toApprove} onClose={() => setOverlay(null)} />
       )}
     </div>
   );

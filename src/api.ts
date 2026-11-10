@@ -224,6 +224,6 @@ export const api = {
   continueRun: (prId: string, prompt: string) => invoke<void>("continue_run", { prId, prompt }),
   postReview: (prId: string, prompt: string, picked: number[], approve: boolean) =>
     invoke<void>("post_review", { prId, prompt, picked, approve }),
-  approve: (id: string) => invoke<void>("approve_pr", { id }),
+  approve: (id: string, body: string) => invoke<void>("approve_pr", { id, body }),
   openPath: (prId: string, path: string) => invoke<void>("open_path", { prId, path }),
 };

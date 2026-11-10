@@ -28,6 +28,7 @@ export type Action =
   | "nextFile"
   | "runPrompt"
   | "continueRun"
+  | "approve"
   | "collapse";
 
 type Key = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
@@ -62,6 +63,7 @@ const SINGLE: Record<string, Action> = {
   "}": "nextFile",
   r: "runPrompt",
   c: "continueRun",
+  a: "approve",
   " ": "collapse",
 };
 
@@ -94,6 +96,7 @@ export const HELP: [string, string][] = [
   ["o", "open PR in browser"],
   ["Cmd-r", "refresh now"],
   ["u", "toggle unread"],
+  ["a", "approve the PR, with an optional message (PR tab)"],
   ["t", "inbox: next rule (all, then each rule)"],
   ["w", "open PR worktree (first open_with), or create it (worktrunk)"],
   ["W", "open PR worktree with… (all open_with entries)"],

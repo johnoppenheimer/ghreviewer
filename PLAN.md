@@ -128,6 +128,7 @@ Three columns separated by 1px lines, no rounding, no shadows, everything monosp
 | `o`                        | open PR in browser                                                                       |
 | `Cmd-r`                    | refresh now (works everywhere; footer pulses green while syncing)                        |
 | `u`                        | toggle unread                                                                            |
+| `a`                        | approve the PR (PR tab): an overlay takes an optional message, `⌘↵` approves on GitHub   |
 | `w`                        | open the PR's worktree with the first `[[open_with]]`, or create it (`wt switch pr:N`)   |
 | `W`                        | pick any `[[open_with]]` command for the worktree (palette)                              |
 | `[` / `]`                  | previous / next PR tab: the PR, then one per `[[prompts]]` entry                         |
