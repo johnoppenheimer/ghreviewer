@@ -22,6 +22,7 @@ Local macOS app to triage GitHub PRs. Tauri 2 (Rust in `src-tauri/`) + React/TS 
 - **Paths.**
   - Config: `~/.config/ghreviewer/config.toml`. It's hot-reloaded, and the app writes it with `toml_edit` so comments survive. Document new keys in `config::STARTER`.
   - Data: `~/Library/Application Support/ghreviewer/`, holding `cache.db` and `runs/`.
+- **Jira** (optional, `jira.rs`). After GitHub, each sync fetches the tickets named in inbox PR titles (`[TI-123]` or `TI-123`) into the `jira` table. `list_inbox` fills `PrSummary.jira` from that cache. The token never goes to the webview (`skip_serializing`). Jira's HTML is sanitized in `JiraView.tsx`.
 - **New `PrSummary` fields** need `#[serde(default)]`: cached rows were written without them.
 - **`context` PRs** are fetched stack parents, or PRs the local filters drop. Show them only greyed, as stack parents. Never count, prefetch or mark them unread.
 - **Untrusted content.**

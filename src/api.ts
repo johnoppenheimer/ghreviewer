@@ -23,14 +23,35 @@ export type PrSummary = {
   headRef: string | null;
   /** Not in the inbox itself: a stack parent of an inbox PR, or dropped by the local filters. */
   context: boolean;
+  /** Tickets named in the title and found in Jira. */
+  jira: TicketRef[];
+};
+
+/** `category` is Jira's status category: `new`, `indeterminate` (in progress) or `done`. */
+export type TicketRef = { key: string; category: string };
+/** A Jira issue (src-tauri/src/jira.rs). The HTML is Jira's own rendering: sanitize it. */
+export type Ticket = TicketRef & {
+  url: string;
+  summary: string;
+  kind: string;
+  status: string;
+  assignee: string | null;
+  reporter: string | null;
+  priority: string | null;
+  labels: string[];
+  parent: { key: string; url: string; summary: string; kind: string } | null;
+  descriptionHtml: string;
+  comments: { author: string; created: string; bodyHtml: string }[];
 };
 
 export type Status = {
   viewer: string | null;
   syncing: boolean;
+  syncingJira: boolean;
   lastSyncMs: number | null;
   rateRemaining: number | null;
   error: string | null;
+  jiraError: string | null;
   configError: string | null;
 };
 
@@ -42,6 +63,8 @@ export type Config = {
   clone_roots: string[];
   open_with: { name: string; command: string[] }[];
   prompts: Prompt[];
+  /** `token` is never read back: set it to replace the one in the file. */
+  jira: { url: string; email: string; prefixes: string[]; token_env: string; token?: string };
   rules: Rule[];
   filters: Filters;
   repos: { pinned: string[]; hidden: string[] };
@@ -92,7 +115,7 @@ export type Finding = {
 };
 /** Local clone + worktree on the PR branch; `wt` is whether worktrunk is installed. */
 export type Worktree = { clone: string | null; path: string | null; wt: boolean };
-export type Settings = Pick<Config, "poll_interval_secs" | "theme" | "rules" | "filters">;
+export type Settings = Pick<Config, "poll_interval_secs" | "theme" | "rules" | "filters" | "jira">;
 
 // PR detail, in the shape of the GraphQL query in src-tauri/src/sync.rs.
 type Login = { login: string } | null;
@@ -191,6 +214,7 @@ export const api = {
   config: () => invoke<Config>("get_config"),
   repos: () => invoke<Repo[]>("list_repos"),
   inbox: () => invoke<PrSummary[]>("list_inbox"),
+  tickets: (keys: string[]) => invoke<Ticket[]>("get_tickets", { keys }),
   pr: (id: string) => invoke<PrDetail>("get_pr", { id }),
   setUnread: (id: string, unread: boolean) => invoke<void>("set_unread", { id, unread }),
   refresh: () => invoke<void>("refresh"),

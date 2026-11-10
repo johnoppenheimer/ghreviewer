@@ -2,6 +2,7 @@ mod agent;
 mod config;
 mod db;
 mod github;
+mod jira;
 mod local;
 mod sync;
 
@@ -33,6 +34,7 @@ struct AppState {
     cfg: RwLock<Config>,
     db: Db,
     gh: Github,
+    jira: jira::Jira,
     status: Mutex<Status>,
     wake: Notify,
     force_repos: AtomicBool,
@@ -46,9 +48,12 @@ struct AppState {
 struct Status {
     viewer: Option<String>,
     syncing: bool,
+    /// The Jira step of a sync, after GitHub's.
+    syncing_jira: bool,
     last_sync_ms: Option<u64>,
     rate_remaining: Option<u64>,
     error: Option<String>,
+    jira_error: Option<String>,
     config_error: Option<String>,
 }
 
@@ -75,13 +80,13 @@ fn reload_config(app: &AppHandle, st: &AppState) {
     match config::load(&st.cfg_path) {
         Ok(None) => {} // missing or empty mid-save: keep the current config
         Ok(Some(new)) => {
-            let rules_changed = {
+            let resync = {
                 let mut cfg = st.cfg.write().unwrap();
-                let rules_changed = cfg.rules != new.rules;
+                let resync = cfg.rules != new.rules || cfg.jira != new.jira;
                 *cfg = new;
-                rules_changed
+                resync
             };
-            if rules_changed {
+            if resync {
                 st.wake.notify_one();
             }
             update_status(app, st, |s| s.config_error = None);
@@ -112,6 +117,46 @@ async fn sync_once(st: &AppState, with_repos: bool) -> anyhow::Result<Option<u64
     let (prs, remaining) = sync::fetch_inbox(&st.gh, &rules, &viewer).await?;
     st.db.replace_prs(&prs)?;
     Ok(remaining)
+}
+
+/// Fetches the Jira tickets named in the inbox's PR titles. A ticket that fails to load keeps
+/// its cached copy.
+async fn sync_jira(st: &Arc<AppState>) -> anyhow::Result<()> {
+    let (cfg, filters) = {
+        let cfg = st.cfg.read().unwrap();
+        (cfg.jira.clone(), cfg.filters.clone())
+    };
+    let mut keys: Vec<String> = st
+        .db
+        .inbox(&filters)?
+        .iter()
+        .filter(|pr| !pr.context)
+        .flat_map(|pr| jira::keys(&pr.title, &cfg.prefixes))
+        .collect();
+    keys.sort();
+    keys.dedup();
+    let (mut found, mut gone, mut error) = (Vec::new(), Vec::new(), None);
+    for chunk in keys.chunks(4) {
+        let mut set = tokio::task::JoinSet::new();
+        for key in chunk {
+            let (st, cfg, key) = (st.clone(), cfg.clone(), key.clone());
+            set.spawn(async move { (st.jira.ticket(&cfg, &key).await, key) });
+        }
+        for (res, key) in set.join_all().await {
+            match res {
+                Ok(Some(ticket)) => found.push(ticket),
+                Ok(None) => gone.push(key),
+                Err(e) => error = Some(e),
+            }
+        }
+        // Most likely the sign-in or the network: the other tickets would fail the same way.
+        if error.is_some() {
+            break;
+        }
+    }
+    keys.retain(|k| !gone.contains(k));
+    st.db.put_tickets(&found, &keys)?;
+    error.map_or(Ok(()), Err)
 }
 
 async fn refresh_detail(st: &AppState, id: &str) -> anyhow::Result<Value> {
@@ -154,8 +199,17 @@ async fn poller(app: AppHandle, st: Arc<AppState>) {
         if res.is_ok() && with_repos {
             repos_at = Some(Instant::now());
         }
+        let jira = if st.cfg.read().unwrap().jira.enabled() {
+            update_status(&app, &st, |s| s.syncing_jira = true);
+            changed(&app); // GitHub's part shows while Jira loads
+            sync_jira(&st).await
+        } else {
+            Ok(())
+        };
         update_status(&app, &st, |s| {
             s.syncing = false;
+            s.syncing_jira = false;
+            s.jira_error = jira.err().map(err);
             match res {
                 Ok(remaining) => {
                     s.error = None;
@@ -192,8 +246,25 @@ fn list_repos(st: State<'_, Arc<AppState>>) -> Res<Vec<Repo>> {
 
 #[tauri::command]
 fn list_inbox(st: State<'_, Arc<AppState>>) -> Res<Vec<PrSummary>> {
-    let filters = st.cfg.read().unwrap().filters.clone();
-    st.db.inbox(&filters).map_err(err)
+    let (filters, prefixes) = {
+        let cfg = st.cfg.read().unwrap();
+        let jira = cfg.jira.enabled().then(|| cfg.jira.prefixes.clone());
+        (cfg.filters.clone(), jira)
+    };
+    let mut prs = st.db.inbox(&filters).map_err(err)?;
+    if let Some(prefixes) = prefixes {
+        let categories = st.db.ticket_categories().map_err(err)?;
+        for pr in &mut prs {
+            pr.jira = jira::refs(&pr.title, &prefixes, &categories);
+        }
+    }
+    Ok(prs)
+}
+
+/// Cached Jira tickets, for the keys the inbox gave on a PR.
+#[tauri::command]
+fn get_tickets(st: State<'_, Arc<AppState>>, keys: Vec<String>) -> Res<Vec<jira::Ticket>> {
+    st.db.tickets(&keys).map_err(err)
 }
 
 /// Returns the cached PR right away and refreshes it in the background (`pr-updated` event).
@@ -730,6 +801,7 @@ pub fn run() {
                 cfg: RwLock::new(cfg),
                 db: Db::open(&data_dir.join("cache.db"))?,
                 gh: Github::new(),
+                jira: jira::Jira::new(),
                 status: Mutex::new(Status {
                     config_error,
                     ..Default::default()
@@ -767,6 +839,7 @@ pub fn run() {
             get_config,
             list_repos,
             list_inbox,
+            get_tickets,
             get_pr,
             set_unread,
             refresh,

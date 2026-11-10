@@ -71,6 +71,17 @@ command = ["open", "-a", "Cursor", "{path}"]
 # prompt = "Use the diagram-design skill to draw what PR {url} changes and the author's intent. Save it as {out}/diagram.html and mention that path."
 # args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
 
+# Jira Cloud (optional). PR titles naming a ticket, like `[TI-123] Fix login` or `TI-123: fix login`,
+# get a `Jira` tab with the ticket, and its key is colored by status in the inbox.
+# `prefixes` are your project keys. The API token (https://id.atlassian.com/manage-profile/security/api-tokens)
+# is one of: `token`, `token_env` (a variable exported by your login shell, e.g. in ~/.zprofile)
+# or `token_command` (prints it, e.g. ["op", "read", "op://Private/Jira/token"]).
+# [jira]
+# url = "https://acme.atlassian.net"
+# email = "you@acme.com"
+# prefixes = ["TI"]
+# token_env = "JIRA_API_TOKEN"
+
 [themes.dark]
 bg = "#0b0b0b"
 bg_alt = "#151515"
@@ -114,7 +125,29 @@ pub struct Config {
     pub open_with: Vec<Opener>,
     pub terminal: Vec<String>,
     pub prompts: Vec<Prompt>,
+    pub jira: Jira,
     pub themes: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// Optional Jira Cloud link: tickets named in PR titles as `[TI-123]` get a tab in the PR pane.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Jira {
+    pub url: String,
+    pub email: String,
+    /// Project keys, e.g. `TI`.
+    pub prefixes: Vec<String>,
+    /// Never sent to the webview. From the settings view, empty means "keep the current one".
+    #[serde(skip_serializing)]
+    pub token: String,
+    pub token_env: String,
+    pub token_command: Vec<String>,
+}
+
+impl Jira {
+    pub fn enabled(&self) -> bool {
+        !self.url.is_empty() && !self.prefixes.is_empty()
+    }
 }
 
 /// A prompt a coding agent runs headless on a PR; its answer gets a tab in the PR pane.
@@ -167,6 +200,7 @@ impl Default for Config {
             .map(Into::into)
             .to_vec(),
             prompts: vec![],
+            jira: Jira::default(),
             rules: vec![],
             filters: Filters::default(),
             repos: RepoFlags::default(),
@@ -203,6 +237,9 @@ pub struct Settings {
     pub theme: String,
     pub rules: Vec<Rule>,
     pub filters: Filters,
+    /// `token_command` is left as it is in the file.
+    #[serde(default)]
+    pub jira: Jira,
 }
 
 pub fn path() -> PathBuf {
@@ -276,6 +313,27 @@ pub fn apply_settings(text: &str, s: &Settings) -> Result<String> {
     f["exclude_repos"] = value(strings(&s.filters.exclude_repos));
     f["hide_drafts"] = value(s.filters.hide_drafts);
 
+    let j = &s.jira;
+    let filled = !j.url.is_empty() || !j.email.is_empty() || !j.prefixes.is_empty();
+    // No empty [jira] section for those who don't use it.
+    if doc.contains_key("jira") || filled || !j.token.is_empty() || !j.token_env.is_empty() {
+        let t = doc["jira"]
+            .or_insert(toml_edit::table())
+            .as_table_mut()
+            .context("`jira` must be written as [jira]")?;
+        t["url"] = value(&j.url);
+        t["email"] = value(&j.email);
+        t["prefixes"] = value(strings(&j.prefixes));
+        if j.token_env.is_empty() {
+            t.remove("token_env");
+        } else {
+            t["token_env"] = value(&j.token_env);
+        }
+        if !j.token.is_empty() {
+            t["token"] = value(&j.token);
+        }
+    }
+
     let out = doc.to_string();
     toml::from_str::<Config>(&out).context("settings produced an invalid config")?;
     Ok(out)
@@ -338,6 +396,9 @@ mod tests {
         let p = uncomment("# [[prompts]]", 5).prompts.remove(0);
         assert_eq!((p.harness, p.args.len()), (Harness::Claude, 5));
         assert_eq!(uncomment("# terminal", 1).terminal.len(), 7);
+        assert!(!c.jira.enabled());
+        let j = uncomment("# [jira]", 5).jira;
+        assert!(j.enabled() && j.token_env == "JIRA_API_TOKEN");
     }
 
     #[test]
@@ -371,6 +432,7 @@ mod tests {
                 exclude_repos: vec!["a/b".into()],
                 hide_drafts: true,
             },
+            jira: Jira::default(),
         };
         let out = apply_settings(STARTER, &s).unwrap();
         assert!(out.contains("# Each rule is a GitHub search query"));
@@ -379,6 +441,27 @@ mod tests {
         assert_eq!(c.poll_interval_secs, 60);
         assert_eq!(c.rules, s.rules);
         assert_eq!(c.filters, s.filters);
+        assert!(!out.contains("\n[jira]"));
+
+        // Jira: an empty token keeps the one in the file, and `token_command` is left alone.
+        let file = "[jira] # mine\ntoken = \"old\"\ntoken_env = \"X\"\ntoken_command = [\"op\"]\n";
+        let mut s = s;
+        s.jira = Jira {
+            url: "https://acme.atlassian.net".into(),
+            email: "me@acme.com".into(),
+            prefixes: vec!["TI".into()],
+            ..Jira::default()
+        };
+        let out = apply_settings(file, &s).unwrap();
+        assert!(out.contains("# mine"));
+        let j = toml::from_str::<Config>(&out).unwrap().jira;
+        assert_eq!((j.token.as_str(), j.token_env.as_str()), ("old", ""));
+        assert_eq!((j.token_command.len(), j.prefixes.len()), (1, 1));
+        s.jira.token = "new".into();
+        let out = apply_settings(&out, &s).unwrap();
+        assert_eq!(toml::from_str::<Config>(&out).unwrap().jira.token, "new");
+        // The webview never gets the token.
+        assert!(!serde_json::to_string(&j).unwrap().contains("old"));
     }
 
     #[test]
@@ -397,6 +480,7 @@ mod tests {
                 },
             ],
             filters: Filters::default(),
+            jira: Jira::default(),
         };
         let c: Config = toml::from_str(&apply_settings("", &s).unwrap()).unwrap();
         assert_eq!(c.rules.len(), 2);

@@ -162,6 +162,8 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
   const [authors, setAuthors] = useState(config.filters.exclude_authors.join("\n"));
   const [repos, setRepos] = useState(config.filters.exclude_repos.join("\n"));
   const [hideDrafts, setHideDrafts] = useState(config.filters.hide_drafts);
+  const [jira, setJira] = useState({ ...config.jira, token: "" });
+  const [prefixes, setPrefixes] = useState(config.jira.prefixes.join(", "));
   const [error, setError] = useState<string | null>(null);
   const themes = [...new Set([...Object.keys(config.themes), config.theme])];
 
@@ -186,6 +188,13 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
           exclude_authors: lines(authors),
           exclude_repos: lines(repos),
           hide_drafts: hideDrafts,
+        },
+        jira: {
+          url: jira.url.trim(),
+          email: jira.email.trim(),
+          prefixes: lines(prefixes),
+          token: jira.token.trim(),
+          token_env: jira.token_env.trim(),
         },
       });
       onClose();
@@ -260,6 +269,42 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
               <option key={t}>{t}</option>
             ))}
           </select>
+
+          <span className="dim">jira url</span>
+          <input
+            value={jira.url}
+            placeholder="https://acme.atlassian.net (empty: no Jira)"
+            onChange={(e) => setJira({ ...jira, url: e.target.value })}
+          />
+
+          <span className="dim">jira email</span>
+          <input
+            value={jira.email}
+            placeholder="you@acme.com"
+            onChange={(e) => setJira({ ...jira, email: e.target.value })}
+          />
+
+          <span className="dim">jira prefixes</span>
+          <input
+            value={prefixes}
+            placeholder="TI, OPS: matches TI-123 in PR titles"
+            onChange={(e) => setPrefixes(e.target.value)}
+          />
+
+          <span className="dim">jira token</span>
+          <input
+            type="password"
+            value={jira.token}
+            placeholder="empty: keep the one in the config file"
+            onChange={(e) => setJira({ ...jira, token: e.target.value })}
+          />
+
+          <span className="dim">or token env</span>
+          <input
+            value={jira.token_env}
+            placeholder="JIRA_API_TOKEN, exported by your login shell"
+            onChange={(e) => setJira({ ...jira, token_env: e.target.value })}
+          />
         </div>
         {error && <div className="error">{error}</div>}
         <div className="actions">

@@ -5,11 +5,13 @@ import {
   canApprove,
   ghImageSrc,
   inScope,
+  jiraClass,
   relTime,
   shouldMarkRead,
   sidebarItems,
   stackRows,
   step,
+  titleParts,
 } from "./model";
 
 const key = (
@@ -42,6 +44,21 @@ test("keymap decodes vim keys and gg", () => {
   expect(km(key("c", { metaKey: true }))).toBeNull();
 });
 
+test("titleParts cuts a title around its Jira keys", () => {
+  const ti = { key: "TI-1", category: "done" };
+  expect(titleParts("no ticket", [])).toEqual([{ text: "no ticket" }]);
+  expect(titleParts("[ti-1][TI-12] fix", [ti])).toEqual([
+    { text: "[", ticket: undefined },
+    { text: "ti-1", ticket: ti },
+    { text: "][TI-12] fix", ticket: undefined },
+  ]);
+  expect([jiraClass("new"), jiraClass("indeterminate"), jiraClass("done")]).toEqual([
+    "dim",
+    "accent",
+    "ok",
+  ]);
+});
+
 const pr = (repo: string, unread = false): PrSummary => ({
   id: `${repo}-${Math.random()}`,
   number: 1,
@@ -61,6 +78,7 @@ const pr = (repo: string, unread = false): PrSummary => ({
   baseRef: "main",
   headRef: null,
   context: false,
+  jira: [],
 });
 
 test("sidebar orders orgs and repos, counts, hides, filters", () => {

@@ -66,26 +66,26 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
 
 Press `?` in the app for this list, and `:` for the command palette (every action, plus settings and themes).
 
-| Key                 | Action                                                     |
-| ------------------- | ---------------------------------------------------------- |
-| `j` / `k`           | next / previous (findings, in a prompt tab)                |
-| `h` / `l`, `Tab`    | previous / next column (`Enter` too)                       |
-| `gg` / `G`          | top / bottom                                               |
-| `Ctrl-d` / `Ctrl-u` | scroll the PR half a page                                  |
-| `/`, `Esc`          | filter the focused list, clear it                          |
-| `o`                 | open the PR in the browser                                 |
-| `u`                 | toggle unread                                              |
-| `a`                 | approve the PR, with an optional message (PR tab)          |
-| `t`                 | show all rules in the inbox, then only each rule in turn   |
-| `Cmd-R`             | sync now                                                   |
-| `w` / `W`           | open the PR's worktree (or create it) / choose how to open |
-| `[` / `]`           | previous / next PR tab (the PR, then each prompt)          |
-| `{` / `}`           | previous / next file of the prompt tab (window 1920px+)    |
-| `r`                 | run or re-run the tab's prompt                             |
-| `c`                 | continue the tab's agent session in a terminal             |
-| `p` / `x`           | pin / hide a repo in the sidebar                           |
-| `H`, `e`, `Space`   | show hidden repos, hide repos without PRs, collapse an org |
-| `Space`             | pick or drop a finding (prompt tab)                        |
+| Key                 | Action                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `j` / `k`           | next / previous (findings, in a prompt tab)                                        |
+| `h` / `l`, `Tab`    | previous / next column (`Enter` too)                                               |
+| `gg` / `G`          | top / bottom                                                                       |
+| `Ctrl-d` / `Ctrl-u` | scroll the PR half a page                                                          |
+| `/`, `Esc`          | filter the focused list, clear it                                                  |
+| `o`                 | open the PR in the browser                                                         |
+| `u`                 | toggle unread                                                                      |
+| `a`                 | approve the PR, with an optional message (PR tab)                                  |
+| `t`                 | show all rules in the inbox, then only each rule in turn                           |
+| `Cmd-R`             | sync now                                                                           |
+| `w` / `W`           | open the PR's worktree (or create it) / choose how to open                         |
+| `[` / `]`           | previous / next PR tab (the PR, Jira, then each prompt)                            |
+| `{` / `}`           | previous / next file of the prompt tab (window 1920px+), or ticket of the Jira tab |
+| `r`                 | run or re-run the tab's prompt                                                     |
+| `c`                 | continue the tab's agent session in a terminal                                     |
+| `p` / `x`           | pin / hide a repo in the sidebar                                                   |
+| `H`, `e`, `Space`   | show hidden repos, hide repos without PRs, collapse an org                         |
+| `Space`             | pick or drop a finding (prompt tab)                                                |
 
 ### Stacks
 
@@ -121,7 +121,7 @@ Agents act with your permissions and read PR text written by other people. Allow
 
 ## Configuration
 
-Everything lives in `~/.config/ghreviewer/config.toml`. The app reloads it as soon as you save it. `:settings` edits the poll interval, theme, rules and filters in the same file and keeps your comments. A broken file shows an error in the status bar and the app keeps the last good config.
+Everything lives in `~/.config/ghreviewer/config.toml`. The app reloads it as soon as you save it. `:settings` edits the poll interval, theme, rules, filters and Jira in the same file and keeps your comments. A broken file shows an error in the status bar and the app keeps the last good config.
 
 ```toml
 poll_interval_secs = 300 # minimum 30
@@ -198,15 +198,34 @@ prompt = "Draw what PR {url} changes as {out}/diagram.html and mention that path
 args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
 ```
 
+### Jira
+
+Optional, Jira Cloud only. A PR whose title names a ticket, like `[TI-123] Fix login` or `TI-123: fix login` (several work too), gets a `Jira` tab: type, status, assignee, reporter, priority, parent and labels, with the description on the left and the comments on the right in a wide window. With several tickets, `{` / `}` switch between them. In the inbox, the key takes the color of its status: dim for to do, blue for in progress, green for done.
+
+Tickets are fetched at each sync, after GitHub (the status bar turns blue for that step). A Jira change never marks a PR unread. Images in a ticket show as links to Jira.
+
+```toml
+[jira]
+url = "https://acme.atlassian.net"
+email = "you@acme.com"
+prefixes = ["TI"] # your project keys
+# The API token, one of:
+token_env = "JIRA_API_TOKEN" # exported by your login shell (e.g. in ~/.zprofile, not ~/.zshrc)
+# token = "..."
+# token_command = ["op", "read", "op://Private/Jira/token"] # prints the token
+```
+
+Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>. `:settings` edits all of these but `token_command`.
+
 ### Themes
 
 `dark` and `light` come with the starter config. Add your own under `[themes.<name>]` with the same keys: `bg`, `bg_alt`, `fg`, `dim`, `border`, `sel`, `accent`, `unread`, `ok`, `fail`, `warn`, `font` and `font_size`. Then pick it with `theme =` or from the command palette.
 
 ## Data and privacy
 
-- **Token.** The GitHub token comes from `gh auth token` and is kept in memory only.
+- **Token.** The GitHub token comes from `gh auth token` and is kept in memory only. The Jira token, if you wrote it as `token`, is in the config file in clear: prefer `token_env` or `token_command`.
 - **Cache.** The inbox, PR details, read state and agent results live in `~/Library/Application Support/ghreviewer/cache.db`. Agent output folders are in `runs/` next to it. Deleting them is safe: the app re-syncs, but read state and past results are lost.
-- **Network.** The app only talks to `api.github.com`, and only reads, except when you approve a PR or post a review. Agents talk to whatever their harness uses.
+- **Network.** The app only talks to `api.github.com` and, when set, your Jira site, and only reads, except when you approve a PR or post a review. Agents talk to whatever their harness uses.
 
 ## Development
 

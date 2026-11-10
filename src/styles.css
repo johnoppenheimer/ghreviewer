@@ -202,6 +202,14 @@ a:hover {
 .tab-mark .pixel-spinner {
   margin-right: 0;
 }
+/* Tickets of the Jira tab, inside the pane. */
+.jira-tickets {
+  border: 1px solid var(--border);
+  border-right: none;
+  width: max-content;
+  max-width: 100%;
+  margin-bottom: 14px;
+}
 .run-keys {
   margin: 2px 0 14px;
 }

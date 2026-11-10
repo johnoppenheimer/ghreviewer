@@ -1,4 +1,4 @@
-import type { PrDetail, PrSummary, Run } from "./api";
+import type { PrDetail, PrSummary, Run, TicketRef } from "./api";
 
 export type SideItem =
   | { key: string; kind: "run"; run: Run }
@@ -241,6 +241,24 @@ export const REVIEW_LABEL: Record<string, [string, string]> = {
   DISMISSED: ["dismissed", "dim"],
   PENDING: ["pending", "dim"],
 };
+
+/** Color class of a Jira status category: to do, in progress, done. */
+export const jiraClass = (category: string) =>
+  ({ indeterminate: "accent", done: "ok" })[category] ?? "dim";
+
+/** A PR title cut around its Jira ticket keys, each key with its ticket. */
+export function titleParts(
+  title: string,
+  tickets: TicketRef[],
+): { text: string; ticket?: TicketRef }[] {
+  if (!tickets.length) return [{ text: title }];
+  // Keys are letters, digits, `-` and `_` (jira.rs `keys`), so they're safe in a pattern.
+  const keys = new RegExp(`\\b(${tickets.map((t) => t.key).join("|")})\\b`, "i");
+  return title.split(keys).map((text) => ({
+    text,
+    ticket: tickets.find((t) => t.key === text.toUpperCase()),
+  }));
+}
 
 /** `ghimg://` for an image file in a GitHub repo, which Rust fetches with the token. */
 export function ghImageSrc(src: string): string | undefined {

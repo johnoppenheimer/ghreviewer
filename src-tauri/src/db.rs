@@ -1,6 +1,7 @@
 use crate::{
     agent::Run,
     config::Filters,
+    jira::Ticket,
     sync::{PrSummary, Repo},
 };
 use anyhow::Result;
@@ -24,7 +25,8 @@ CREATE TABLE IF NOT EXISTS runs (
   prompt TEXT NOT NULL,
   json TEXT NOT NULL,
   PRIMARY KEY (pr_id, prompt)
-);";
+);
+CREATE TABLE IF NOT EXISTS jira (key TEXT PRIMARY KEY, json TEXT NOT NULL);";
 
 impl Db {
     pub fn open(path: &Path) -> Result<Self> {
@@ -143,6 +145,46 @@ impl Db {
         };
         self.conn().execute(sql, [id])?;
         Ok(())
+    }
+
+    /// Saves fetched Jira tickets and drops the cached ones whose key isn't in `keep`.
+    pub fn put_tickets(&self, tickets: &[Ticket], keep: &[String]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for t in tickets {
+            tx.execute(
+                "INSERT OR REPLACE INTO jira (key, json) VALUES (?1, ?2)",
+                params![t.key, serde_json::to_string(t)?],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM jira WHERE key NOT IN (SELECT value FROM json_each(?1))",
+            [serde_json::to_string(keep)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The cached tickets among `keys`, in that order.
+    pub fn tickets(&self, keys: &[String]) -> Result<Vec<Ticket>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT json FROM jira WHERE key = ?1")?;
+        let mut tickets = Vec::new();
+        for key in keys {
+            let json: Option<String> = stmt.query_row([key], |r| r.get(0)).optional()?;
+            if let Some(json) = json {
+                tickets.push(serde_json::from_str(&json)?);
+            }
+        }
+        Ok(tickets)
+    }
+
+    /// Status category of every cached ticket, by key.
+    pub fn ticket_categories(&self) -> Result<HashMap<String, String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT key, json_extract(json, '$.category') FROM jira")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Latest run of each prompt on a PR. Kept after the PR leaves the inbox.
@@ -275,6 +317,7 @@ mod tests {
             base_ref: "main".into(),
             head_ref: Some(id.into()),
             context: false,
+            jira: vec![],
         }
     }
 
@@ -409,6 +452,28 @@ mod tests {
             db.mark_run_seen("a", p).unwrap();
         }
         assert_eq!(active(&db), ["live"]);
+    }
+
+    #[test]
+    fn tickets_cached_and_pruned() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let t = |key: &str, category: &str| Ticket {
+            key: key.into(),
+            category: category.into(),
+            ..Default::default()
+        };
+        let keys = ["B-2", "A-1", "C-3"].map(String::from);
+        db.put_tickets(&[t("A-1", "new"), t("B-2", "done")], &keys)
+            .unwrap();
+        let got = db.tickets(&keys).unwrap();
+        assert_eq!(
+            got.iter().map(|t| t.key.as_str()).collect::<Vec<_>>(),
+            ["B-2", "A-1"]
+        );
+        // A-1 failed to refresh this time: its cached copy stays. B-2 left the inbox.
+        db.put_tickets(&[], &keys[1..]).unwrap();
+        let cats = db.ticket_categories().unwrap();
+        assert_eq!(cats, HashMap::from([("A-1".into(), "new".into())]));
     }
 
     #[test]

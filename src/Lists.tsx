@@ -1,6 +1,15 @@
 import { type CSSProperties, useEffect, useRef } from "react";
 import type { Run } from "./api";
-import { type Graph, type PrRow, REVIEW_LABEL, type SideItem, checkGlyph, relTime } from "./model";
+import {
+  type Graph,
+  type PrRow,
+  REVIEW_LABEL,
+  type SideItem,
+  checkGlyph,
+  jiraClass,
+  relTime,
+  titleParts,
+} from "./model";
 import { PixelSpinner } from "./RunView";
 
 type FilterProps = {
@@ -210,7 +219,17 @@ export function Inbox(
               </div>
               <div className="line">
                 <span className="dot" />
-                <span className="title grow">{pr.title}</span>
+                <span className="title grow">
+                  {titleParts(pr.title, pr.jira).map(({ text, ticket }, i) =>
+                    ticket ? (
+                      <span key={i} className={jiraClass(ticket.category)}>
+                        {text}
+                      </span>
+                    ) : (
+                      text
+                    ),
+                  )}
+                </span>
               </div>
               <div className="line">
                 <span className="dot" />

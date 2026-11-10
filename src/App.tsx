@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type PrDetail, type PrSummary, type Repo, type Run, api } from "./api";
+import { type PrDetail, type PrSummary, type Repo, type Run, type Ticket, api } from "./api";
+import { JiraView } from "./JiraView";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
 import {
@@ -23,6 +24,9 @@ import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 const NO_REPOS: Repo[] = [];
 const NO_PRS: PrSummary[] = [];
 const NO_RUNS: Run[] = [];
+const NO_TICKETS: Ticket[] = [];
+/** Name of the Jira tab among the PR pane tabs (the others are "" and prompt names). */
+const JIRA_TAB = "<jira>";
 
 /** useState that survives relaunches (webview localStorage). */
 function usePersisted<T>(key: string, initial: T) {
@@ -59,7 +63,7 @@ const SYNC_FRAG = `#version 300 es
 precision highp float;
 uniform vec2 res;
 uniform float cell, time, seed;
-uniform vec3 ok, bg;
+uniform vec3 fg, bg;
 out vec4 color;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + seed) * 43758.5453); }
 void main() {
@@ -71,10 +75,11 @@ void main() {
   float t = max(0.0, time - x * 1500.0 - hash(c + 7.0) * 300.0) / 1400.0;
   float p = mod(floor(t), 2.0) == 0.0 ? fract(t) : 1.0 - fract(t);
   float a = 1.0 - 0.65 * floor(p * 3.0) / 3.0;
-  color = vec4(mix(bg, ok, level) * a, a);
+  color = vec4(mix(bg, fg, level) * a, a);
 }`;
 
-function SyncBlocks() {
+/** `color`: the theme color of the blocks; remount (`key`) to change it. */
+function SyncBlocks({ color }: { color: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Created here so each mount gets a fresh context; the cleanup loses the previous one.
@@ -121,7 +126,7 @@ function SyncBlocks() {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(u("res"), canvas.width, canvas.height);
       gl.uniform1f(u("cell"), canvas.height / SYNC_ROWS);
-      gl.uniform3fv(u("ok"), rgb("--ok"));
+      gl.uniform3fv(u("fg"), rgb(color));
       gl.uniform3fv(u("bg"), rgb("--bg"));
       draw();
     };
@@ -171,6 +176,8 @@ export default function App() {
   const [cursor, setCursor] = useState(0);
   // File tab of the prompt tab (window 1920px+); falls back to the run's first file.
   const [tabFile, setTabFile] = useState<string>();
+  // Ticket shown in the Jira tab; falls back to the PR's first ticket.
+  const [ticketKey, setTicketKey] = useState<string>();
   const paneRef = useRef<HTMLDivElement>(null);
   const keymap = useMemo(createKeymap, []);
 
@@ -358,9 +365,19 @@ export default function App() {
     enabled: !!selected,
   }).data;
   const runOf = (name: string) => runs?.find((r) => r.prompt === name);
-  const tabNames = ["", ...prompts.map((p) => p.name)];
+  // Jira tickets named in the PR title, from the cache the sync fills.
+  const ticketKeys = selected?.jira.map((t) => t.key) ?? [];
+  const tickets =
+    useQuery({
+      queryKey: ["tickets", ...ticketKeys],
+      queryFn: () => api.tickets(ticketKeys),
+      enabled: ticketKeys.length > 0,
+    }).data ?? NO_TICKETS;
+  const ticket = tickets.find((t) => t.key === ticketKey) ?? tickets[0];
+  const tabNames = ["", ...(ticket ? [JIRA_TAB] : []), ...prompts.map((p) => p.name)];
   const tab = Math.max(0, tabNames.indexOf(tabName));
-  const tabPrompt = prompts[tab - 1];
+  const onJira = tabNames[tab] === JIRA_TAB;
+  const tabPrompt = prompts.find((p) => p.name === tabNames[tab]);
   const switchTab = (i: number) => {
     setTabName(tabNames[(i + tabNames.length) % tabNames.length]);
     paneRef.current?.scrollTo({ top: 0 });
@@ -387,9 +404,11 @@ export default function App() {
   const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
   const files = tabRun?.files ?? [];
   const shownFile = tabFile && files.includes(tabFile) ? tabFile : files[0];
-  const switchFile = (delta: number) =>
-    files.length &&
-    setTabFile(files[(files.indexOf(shownFile!) + delta + files.length) % files.length]);
+  const switchFile = (delta: number) => {
+    const next = <T,>(all: T[], at: T) => all[(all.indexOf(at) + delta + all.length) % all.length];
+    if (onJira) setTicketKey(next(tickets, ticket).key);
+    else if (files.length) setTabFile(next(files, shownFile!));
+  };
 
   // Findings of the tab's run: which are picked (until relaunch) and the keyboard cursor.
   const review = tabRun?.review;
@@ -427,33 +446,40 @@ export default function App() {
     </button>
   );
   const tabs = tabNames.map((name) =>
-    name ? (
+    name === JIRA_TAB ? (
+      "Jira"
+    ) : name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
     ) : (
       "PR"
     ),
   );
-  const tabBody = tabPrompt && selected && (
-    <RunView
-      prompt={tabPrompt}
-      run={runOf(tabPrompt.name)}
-      stale={isStale(runOf(tabPrompt.name), pr?.headRefOid)}
-      hasWorktree={!!wt?.path}
-      now={now}
-      picker={{
-        picked,
-        cursor,
-        posting,
-        onToggle: togglePick,
-        onPost: postReview,
-        onOpen: (url) => fire(openUrl(url)),
-      }}
-      shownFile={shownFile}
-      onFile={setTabFile}
-      onRun={() => runPrompt(tabPrompt.name)}
-      onOpenFile={(path) => fire(api.openPath(selected.id, path))}
-    />
+  const jiraBody = onJira && (
+    <JiraView tickets={tickets} ticket={ticket} now={now} onTicket={setTicketKey} />
   );
+  const tabBody =
+    jiraBody ||
+    (tabPrompt && selected && (
+      <RunView
+        prompt={tabPrompt}
+        run={runOf(tabPrompt.name)}
+        stale={isStale(runOf(tabPrompt.name), pr?.headRefOid)}
+        hasWorktree={!!wt?.path}
+        now={now}
+        picker={{
+          picked,
+          cursor,
+          posting,
+          onToggle: togglePick,
+          onPost: postReview,
+          onOpen: (url) => fire(openUrl(url)),
+        }}
+        shownFile={shownFile}
+        onFile={setTabFile}
+        onRun={() => runPrompt(tabPrompt.name)}
+        onOpenFile={(path) => fire(api.openPath(selected.id, path))}
+      />
+    ));
 
   const run = (action: Action) => {
     const pane = paneRef.current;
@@ -577,9 +603,9 @@ export default function App() {
       ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
       : []),
     ...(canCreateWt ? [{ label: "create worktree", run: worktreeAction }] : []),
-    ...prompts.flatMap((p, i) => {
+    ...prompts.flatMap((p) => {
       const run = runOf(p.name);
-      const show = () => switchTab(i + 1);
+      const show = () => switchTab(tabNames.indexOf(p.name));
       return [
         ...(pr ? [{ label: `run ${p.name}`, run: () => (show(), runPrompt(p.name)) }] : []),
         ...(run?.status === "running" && selected
@@ -629,7 +655,8 @@ export default function App() {
   else if (!config?.rules.length) empty = "No rules yet. Press : then settings.";
   else if (status?.syncing && !mine.length) empty = "Syncing…";
 
-  const error = uiError ?? status?.configError ?? status?.error;
+  const error = uiError ?? status?.configError ?? status?.error ?? status?.jiraError;
+  const syncingJira = !!status?.syncingJira;
   const synced = status?.lastSyncMs ? relTime(status.lastSyncMs, now) : null;
 
   return (
@@ -691,14 +718,18 @@ export default function App() {
         onLink={(url) => fire(openUrl(url))}
       />
       <div className={`status ${status?.syncing ? "syncing" : ""}`}>
-        {status?.syncing && <SyncBlocks />}
+        {status?.syncing && (
+          <SyncBlocks key={String(syncingJira)} color={syncingJira ? "--accent" : "--ok"} />
+        )}
         <span>{status?.viewer ? `@${status.viewer}` : "…"}</span>
-        <span className={status?.syncing ? "ok" : ""}>
-          {status?.syncing
-            ? "syncing…"
-            : synced
-              ? `synced ${synced === "now" ? "just now" : `${synced} ago`}`
-              : "not synced"}
+        <span className={syncingJira ? "accent" : status?.syncing ? "ok" : ""}>
+          {syncingJira
+            ? "syncing jira…"
+            : status?.syncing
+              ? "syncing…"
+              : synced
+                ? `synced ${synced === "now" ? "just now" : `${synced} ago`}`
+                : "not synced"}
         </span>
         {status?.rateRemaining != null && <span>api {status.rateRemaining}</span>}
         {error && <span className="fail">{error}</span>}

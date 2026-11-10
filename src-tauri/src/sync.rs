@@ -42,6 +42,9 @@ pub struct PrSummary {
     /// Not in the inbox itself: a stack parent of an inbox PR, or dropped by the local filters.
     #[serde(default)]
     pub context: bool,
+    /// Tickets named in the title and found in Jira. Filled when the inbox is read.
+    #[serde(default)]
+    pub jira: Vec<crate::jira::TicketRef>,
 }
 
 #[derive(Deserialize)]
@@ -309,6 +312,7 @@ fn summarize(pr: SearchPr, viewer: &str) -> PrSummary {
         base_ref: pr.base_ref_name,
         head_ref: (!pr.is_cross_repository).then_some(pr.head_ref_name),
         context: false,
+        jira: vec![],
     }
 }
 
