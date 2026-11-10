@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 #[derive(Debug, Default, Serialize)]
@@ -11,7 +11,7 @@ use tokio::process::Command;
 pub struct Worktree {
     /// Main clone of the repo, if one was found under the clone roots.
     pub clone: Option<String>,
-    /// Worktree checked out on the PR branch (may be the main clone itself).
+    /// Worktree checked out on the PR branch, or mid-rebase of it (may be the main clone itself).
     pub path: Option<String>,
     /// Whether worktrunk (`wt`) is installed.
     pub wt: bool,
@@ -85,11 +85,30 @@ fn find_clone(roots: &[String], repo: &str) -> Option<PathBuf> {
 
 /// Path of the worktree on `branch`, from `git worktree list --porcelain`.
 fn parse_worktrees(porcelain: &str, branch: &str) -> Option<String> {
-    let wanted = format!("branch refs/heads/{branch}");
+    let wanted = format!("refs/heads/{branch}");
     porcelain.split("\n\n").find_map(|block| {
         let path = block.lines().find_map(|l| l.strip_prefix("worktree "))?;
-        block.lines().any(|l| l == wanted).then(|| path.to_string())
+        let on_branch = block.lines().any(|l| {
+            l.strip_prefix("branch ") == Some(wanted.as_str())
+                // A rebase detaches HEAD, but git still counts the branch as checked out there.
+                || l == "detached" && rebasing_branch(path).as_deref() == Some(wanted.as_str())
+        });
+        on_branch.then(|| path.to_string())
     })
+}
+
+/// Branch being rebased in a worktree (`refs/heads/…`), from `head-name` in its git dir.
+pub fn rebasing_branch(worktree: &str) -> Option<String> {
+    let dot_git = Path::new(worktree).join(".git");
+    // A linked worktree's `.git` is a file pointing at its git dir, maybe relative to the worktree.
+    let git_dir = match std::fs::read_to_string(&dot_git) {
+        Ok(file) => Path::new(worktree).join(file.strip_prefix("gitdir:")?.trim()),
+        Err(_) => dot_git,
+    };
+    ["rebase-merge", "rebase-apply"]
+        .into_iter()
+        .find_map(|dir| std::fs::read_to_string(git_dir.join(dir).join("head-name")).ok())
+        .map(|name| name.trim().to_string())
 }
 
 /// Checked once: installing worktrunk needs an app restart to show up.
@@ -268,6 +287,34 @@ mod tests {
             Some("/dev/ti")
         );
         assert_eq!(parse_worktrees(porcelain, "feat"), None);
+    }
+
+    #[test]
+    fn worktree_mid_rebase_stays_on_its_branch() {
+        let root = std::env::temp_dir().join(format!("ghreviewer-rebase-{}", std::process::id()));
+        let git_dir = root.join("ti/.git/worktrees/ti.feat");
+        std::fs::create_dir_all(git_dir.join("rebase-merge")).unwrap();
+        std::fs::write(
+            git_dir.join("rebase-merge/head-name"),
+            "refs/heads/feat/x\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("ti.feat")).unwrap();
+        // Relative, as with `worktree.useRelativePaths`.
+        std::fs::write(
+            root.join("ti.feat/.git"),
+            "gitdir: ../ti/.git/worktrees/ti.feat\n",
+        )
+        .unwrap();
+        let wt = root.join("ti.feat").display().to_string();
+        let porcelain = format!("worktree {wt}\nHEAD abc\ndetached\n");
+        assert_eq!(parse_worktrees(&porcelain, "feat/x"), Some(wt));
+        assert_eq!(parse_worktrees(&porcelain, "feat/y"), None);
+        assert_eq!(
+            rebasing_branch(&root.join("ti").display().to_string()),
+            None
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

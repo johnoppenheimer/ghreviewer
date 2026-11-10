@@ -414,11 +414,15 @@ async fn run_task(
         wt = local::lookup(&roots, &pr.repo, &pr.branch).await?;
     }
     let path = wt.path.context("no worktree on the PR branch")?;
+    let name = path.rsplit('/').next().unwrap_or_default();
+    anyhow::ensure!(
+        local::rebasing_branch(&path).is_none(),
+        "{name} is in the middle of a rebase: finish it, then re-run"
+    );
     let out = st.data_dir.join("runs").join(run_dir(&pr.id, &spec.name)?);
     // Fresh for each run, so it only holds this run's files.
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out)?;
-    let name = path.rsplit('/').next().unwrap_or_default();
     let (number, out_str) = (pr.number.to_string(), out.display().to_string());
     let vars = [
         ("path", path.as_str()),
