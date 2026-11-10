@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { PrDetail, PrSummary } from "./api";
 import { createKeymap } from "./keys";
-import { canApprove, inScope, relTime, sidebarItems, stackRows, step } from "./model";
+import { canApprove, ghImageSrc, inScope, relTime, sidebarItems, stackRows, step } from "./model";
 
 const key = (
   k: string,
@@ -113,6 +113,17 @@ test("scope, step, relTime", () => {
   expect(relTime("2026-01-09T23:59:30Z", now)).toBe("now");
   expect(relTime("2026-01-09T21:00:00Z", now)).toBe("3h");
   expect(relTime("2026-01-07T00:00:00Z", now)).toBe("3d");
+});
+
+test("ghImageSrc: repo files through ghimg://, other images as they are", () => {
+  expect(ghImageSrc("https://github.com/acme/web/blob/afa42c65/docs/a%20b.png?raw=true")).toBe(
+    "ghimg://localhost/acme/web/afa42c65/docs/a%20b.png",
+  );
+  expect(ghImageSrc("https://github.com/acme/web/raw/main/x.png")).toBe(
+    "ghimg://localhost/acme/web/main/x.png",
+  );
+  expect(ghImageSrc("https://camo.githubusercontent.com/abc")).toBeUndefined();
+  expect(ghImageSrc("https://github.com/user-attachments/assets/123")).toBeUndefined();
 });
 
 test("canApprove: open, not mine, head not approved by me yet", () => {

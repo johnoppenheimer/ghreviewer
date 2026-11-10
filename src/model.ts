@@ -228,3 +228,9 @@ export const REVIEW_LABEL: Record<string, [string, string]> = {
   DISMISSED: ["dismissed", "dim"],
   PENDING: ["pending", "dim"],
 };
+
+/** `ghimg://` for an image file in a GitHub repo, which Rust fetches with the token. */
+export function ghImageSrc(src: string): string | undefined {
+  const m = src.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/(?:blob|raw)\/([^?#]+)/);
+  return m ? `ghimg://localhost/${m[1]}/${m[2]}` : undefined;
+}

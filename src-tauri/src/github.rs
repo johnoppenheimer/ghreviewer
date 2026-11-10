@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
@@ -103,6 +103,27 @@ impl Github {
                 .join("; ");
             return Ok((res.data, errors));
         }
+    }
+
+    /// A file on raw.githubusercontent.com (`path` is `/<owner>/<repo>/<ref>/<file>`) and its
+    /// content type.
+    pub async fn raw(&self, path: &str) -> Result<(String, Vec<u8>)> {
+        // Anything but a path could send the token to another host.
+        ensure!(path.starts_with('/'), "not a path: {path}");
+        let res = self
+            .http
+            .get(format!("https://raw.githubusercontent.com{path}"))
+            .bearer_auth(self.token(false).await?)
+            .send()
+            .await?
+            .error_for_status()?;
+        let mime = res
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        Ok((mime, res.bytes().await?.to_vec()))
     }
 }
 

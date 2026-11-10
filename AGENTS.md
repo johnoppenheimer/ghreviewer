@@ -26,6 +26,7 @@ Local macOS app to triage GitHub PRs. Tauri 2 (Rust in `src-tauri/`) + React/TS 
 - **`context` PRs** are fetched stack parents, or PRs the local filters drop. Show them only greyed, as stack parents. Never count, prefetch or mark them unread.
 - **Untrusted content.**
   - Sanitize GitHub HTML with DOMPurify.
+  - Repo images (`github.com/<repo>/blob|raw/...`) load through `ghimg://` (`lib.rs::gh_image`), fetched with the token. It serves images only.
   - Agent HTML goes through `runfile://` (`lib.rs::run_file`, same scope as the asset protocol) into `<iframe sandbox="allow-scripts">`.
   - `open_path` only opens files listed in that PR's runs.
 - **Agent runs** stop when the app quits. Killing the `opencode run` client aborts the turn, even with opencode's background service. At startup they're marked `interrupted`.

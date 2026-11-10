@@ -653,6 +653,19 @@ fn run_file(app: &AppHandle, uri: &tauri::http::Uri) -> tauri::http::Response<Ve
     res.header("Content-Type", mime).body(body).unwrap()
 }
 
+/// `ghimg://localhost/<owner>/<repo>/<ref>/<file>`: an image in a repo, fetched with the token.
+/// The webview has no GitHub session, so a private repo's files are a 404 to it.
+async fn gh_image(st: &AppState, path: &str) -> tauri::http::Response<Vec<u8>> {
+    let res = tauri::http::Response::builder();
+    match st.gh.raw(path).await {
+        // Images only: the token can read any file.
+        Ok((mime, body)) if mime.starts_with("image/") => {
+            res.header("Content-Type", mime).body(body).unwrap()
+        }
+        _ => res.status(404).body(Vec::new()).unwrap(),
+    }
+}
+
 /// Opens a file a run on the PR mentioned with its default app.
 #[tauri::command]
 fn open_path(st: State<'_, Arc<AppState>>, pr_id: String, path: String) -> Res<()> {
@@ -677,6 +690,13 @@ pub fn run() {
             tauri::async_runtime::spawn_blocking(move || {
                 responder.respond(run_file(&app, req.uri()))
             });
+        })
+        .register_asynchronous_uri_scheme_protocol("ghimg", |ctx, req, responder| {
+            let st = ctx.app_handle().state::<Arc<AppState>>().inner().clone();
+            let path = req.uri().path().to_string();
+            tauri::async_runtime::spawn(
+                async move { responder.respond(gh_image(&st, &path).await) },
+            );
         })
         .setup(|app| {
             let data_dir = dirs::data_dir().context("no data dir")?.join("ghreviewer");

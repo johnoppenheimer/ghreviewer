@@ -8,11 +8,15 @@ import {
   type TimelineItem,
   list,
 } from "./api";
-import { REVIEW_LABEL, checkGlyph, relTime } from "./model";
+import { REVIEW_LABEL, checkGlyph, ghImageSrc, relTime } from "./model";
 
-// Global hook, so it also covers the run markdown: off-screen images aren't fetched or decoded.
+// Global hook, so it also covers the run markdown: off-screen images aren't fetched or decoded,
+// and repo images load with the token (the webview has no GitHub session for private repos).
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "IMG") node.setAttribute("loading", "lazy");
+  if (node.tagName !== "IMG") return;
+  node.setAttribute("loading", "lazy");
+  const src = ghImageSrc(node.getAttribute("src") ?? "");
+  if (src) node.setAttribute("src", src);
 });
 
 function Html({ html }: { html: string | undefined }) {
