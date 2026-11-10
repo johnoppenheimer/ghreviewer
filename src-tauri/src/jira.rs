@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 const FIELDS: &str =
     "summary,status,issuetype,assignee,reporter,priority,labels,parent,description,comment";
 
+const TOKEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// The part of a Jira issue the Jira tab shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -136,33 +138,57 @@ fn parse(base: &str, v: &Value) -> Ticket {
     }
 }
 
-/// The API token: `token`, else `$token_env` or `token_command`, both run in the login shell
-/// (a GUI app doesn't get the shell's environment).
+/// The token `cmd` prints (its last line: a shell startup file may print before it).
+async fn token_from(mut cmd: tokio::process::Command, what: &str) -> Result<String> {
+    // A shell startup file may wait on something nobody sees: don't hold the sync forever.
+    let out = tokio::time::timeout(TOKEN_TIMEOUT, cmd.output())
+        .await
+        .with_context(|| format!("Jira: {what} gave no token in time"))?
+        .with_context(|| format!("Jira: could not read {what}"))?;
+    let last = |bytes: &[u8]| {
+        let text = String::from_utf8_lossy(bytes);
+        text.lines().last().unwrap_or_default().trim().to_string()
+    };
+    let token = last(&out.stdout);
+    // The command's own words (never its stdout, which may hold the token), all of them: the
+    // cause is often in the first lines.
+    let said = String::from_utf8_lossy(&out.stderr);
+    ensure!(
+        out.status.success() && !token.is_empty(),
+        "Jira: no token from {what} ({}): {}",
+        out.status,
+        said.trim().chars().take(1500).collect::<String>()
+    );
+    Ok(token)
+}
+
+/// The API token: `token`, else `$token_env` read through the user's shell (a GUI app doesn't
+/// get the shell's environment).
 async fn resolve_token(cfg: &config::Jira) -> Result<String> {
     if !cfg.token.is_empty() {
         return Ok(cfg.token.clone());
     }
-    let (args, what) = if cfg.token_env.is_empty() {
-        (cfg.token_command.clone(), "`token_command`".to_string())
-    } else {
-        (
-            vec!["printenv".into(), cfg.token_env.clone()],
-            format!("${} in your login shell", cfg.token_env),
-        )
-    };
+    let name = &cfg.token_env;
     ensure!(
-        !args.is_empty(),
-        "Jira: set `token`, `token_env` or `token_command` under [jira]"
+        !name.is_empty(),
+        "Jira: set `token` or `token_env` under [jira]"
     );
-    let out = login_command(&args)
-        .output()
-        .await
-        .with_context(|| format!("Jira: could not read {what}"))?;
-    // The last line: a login file may print before the command runs.
-    let out = String::from_utf8(out.stdout)?;
-    let token = out.lines().last().unwrap_or_default().trim().to_string();
-    ensure!(!token.is_empty(), "Jira: no token from {what}");
-    Ok(token)
+    // It goes into a shell command line below.
+    ensure!(
+        name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+        "Jira: `token_env` must be a variable name"
+    );
+    let what = format!("${name}");
+    let login = login_command(&["printenv".into(), name.clone()]);
+    if let Ok(token) = token_from(login, &what).await {
+        return Ok(token);
+    }
+    // Most exports live in ~/.zshrc, which only an interactive shell reads.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut interactive = crate::local::command(&shell);
+    interactive.args(["-lic", &format!("printenv {name}")]);
+    let token = token_from(interactive, &what).await;
+    token.with_context(|| format!("Jira: ${name} isn't exported by your shell"))
 }
 
 /// Jira Cloud REST client (email + API token).
@@ -309,10 +335,25 @@ mod tests {
     async fn token_sources() {
         let mut cfg = config::Jira::default();
         assert!(resolve_token(&cfg).await.is_err());
-        cfg.token_command = ["echo", "from-command"].map(String::from).to_vec();
-        assert_eq!(resolve_token(&cfg).await.unwrap(), "from-command");
+        let sh = |script: &str| {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.args(["-c", script]);
+            cmd
+        };
+        let ok = token_from(sh("echo noise; echo tok"), "x").await;
+        assert_eq!(ok.unwrap(), "tok");
+        // A failing command shows its exit status and what it said, not its stdout.
+        let failing = sh("echo secret; echo locked >&2; echo more >&2; exit 3");
+        let e = token_from(failing, "x").await.unwrap_err().to_string();
+        assert!(
+            e.contains("locked") && e.contains('3') && !e.contains("secret"),
+            "{e}"
+        );
         cfg.token_env = "GHREVIEWER_NO_SUCH_VAR".into();
         assert!(resolve_token(&cfg).await.is_err());
+        cfg.token_env = "X; echo injected".into();
+        let e = resolve_token(&cfg).await.unwrap_err().to_string();
+        assert!(e.contains("variable name"), "{e}");
         cfg.token = "inline".into();
         assert_eq!(resolve_token(&cfg).await.unwrap(), "inline");
         cfg.url = "http://acme.example".into();

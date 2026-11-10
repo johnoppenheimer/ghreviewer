@@ -209,13 +209,12 @@ Tickets are fetched at each sync, after GitHub (the status bar turns blue for th
 url = "https://acme.atlassian.net"
 email = "you@acme.com"
 prefixes = ["TI"] # your project keys
-# The API token, one of:
-token_env = "JIRA_API_TOKEN" # exported by your login shell (e.g. in ~/.zprofile, not ~/.zshrc)
+# The API token, either:
+token_env = "JIRA_API_TOKEN" # a variable your shell exports (e.g. in ~/.zshrc)
 # token = "..."
-# token_command = ["op", "read", "op://Private/Jira/token"] # prints the token
 ```
 
-Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>. `:settings` edits all of these but `token_command`.
+Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>. `:settings` edits all of these.
 
 ### Themes
 
@@ -223,7 +222,7 @@ Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens
 
 ## Data and privacy
 
-- **Token.** The GitHub token comes from `gh auth token` and is kept in memory only. The Jira token, if you wrote it as `token`, is in the config file in clear: prefer `token_env` or `token_command`.
+- **Token.** The GitHub token comes from `gh auth token` and is kept in memory only. The Jira token, if you wrote it as `token`, is in the config file in clear: prefer `token_env`.
 - **Cache.** The inbox, PR details, read state and agent results live in `~/Library/Application Support/ghreviewer/cache.db`. Agent output folders are in `runs/` next to it. Deleting them is safe: the app re-syncs, but read state and past results are lost.
 - **Network.** The app only talks to `api.github.com` and, when set, your Jira site, and only reads, except when you approve a PR or post a review. Agents talk to whatever their harness uses.
 

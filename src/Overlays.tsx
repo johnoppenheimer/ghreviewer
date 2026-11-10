@@ -302,7 +302,7 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
           <span className="dim">or token env</span>
           <input
             value={jira.token_env}
-            placeholder="JIRA_API_TOKEN, exported by your login shell"
+            placeholder="JIRA_API_TOKEN, exported by your shell"
             onChange={(e) => setJira({ ...jira, token_env: e.target.value })}
           />
         </div>

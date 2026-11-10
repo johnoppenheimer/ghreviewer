@@ -74,8 +74,7 @@ command = ["open", "-a", "Cursor", "{path}"]
 # Jira Cloud (optional). PR titles naming a ticket, like `[TI-123] Fix login` or `TI-123: fix login`,
 # get a `Jira` tab with the ticket, and its key is colored by status in the inbox.
 # `prefixes` are your project keys. The API token (https://id.atlassian.com/manage-profile/security/api-tokens)
-# is one of: `token`, `token_env` (a variable exported by your login shell, e.g. in ~/.zprofile)
-# or `token_command` (prints it, e.g. ["op", "read", "op://Private/Jira/token"]).
+# is either `token` or `token_env` (a variable your shell exports, e.g. in ~/.zshrc).
 # [jira]
 # url = "https://acme.atlassian.net"
 # email = "you@acme.com"
@@ -141,7 +140,6 @@ pub struct Jira {
     #[serde(skip_serializing)]
     pub token: String,
     pub token_env: String,
-    pub token_command: Vec<String>,
 }
 
 impl Jira {
@@ -237,7 +235,6 @@ pub struct Settings {
     pub theme: String,
     pub rules: Vec<Rule>,
     pub filters: Filters,
-    /// `token_command` is left as it is in the file.
     #[serde(default)]
     pub jira: Jira,
 }
@@ -443,8 +440,8 @@ mod tests {
         assert_eq!(c.filters, s.filters);
         assert!(!out.contains("\n[jira]"));
 
-        // Jira: an empty token keeps the one in the file, and `token_command` is left alone.
-        let file = "[jira] # mine\ntoken = \"old\"\ntoken_env = \"X\"\ntoken_command = [\"op\"]\n";
+        // Jira: an empty token keeps the one in the file.
+        let file = "[jira] # mine\ntoken = \"old\"\ntoken_env = \"X\"\n";
         let mut s = s;
         s.jira = Jira {
             url: "https://acme.atlassian.net".into(),
@@ -456,7 +453,7 @@ mod tests {
         assert!(out.contains("# mine"));
         let j = toml::from_str::<Config>(&out).unwrap().jira;
         assert_eq!((j.token.as_str(), j.token_env.as_str()), ("old", ""));
-        assert_eq!((j.token_command.len(), j.prefixes.len()), (1, 1));
+        assert_eq!(j.prefixes, ["TI"]);
         s.jira.token = "new".into();
         let out = apply_settings(&out, &s).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap().jira.token, "new");
