@@ -15,9 +15,11 @@ import { JiraView } from "./JiraView";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
 import {
+  botReviews,
   canApprove,
   inScope,
   matchesFilter,
+  pickedByDefault,
   relTime,
   runItems,
   shouldMarkRead,
@@ -27,7 +29,7 @@ import {
 } from "./model";
 import { Approve, type Command, ErrorDetail, Help, Palette, Settings } from "./Overlays";
 import { PrView } from "./PrView";
-import { PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
+import { BotView, PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
 const NO_REPOS: Repo[] = [];
 const NO_PRS: PrSummary[] = [];
@@ -390,9 +392,17 @@ export default function App() {
       enabled: ticketKeys.length > 0,
     }).data ?? NO_TICKETS;
   const ticket = tickets.find((t) => t.key === ticketKey) ?? tickets[0];
-  const tabNames = ["", ...(ticket ? [JIRA_TAB] : []), ...prompts.map((p) => p.name)];
+  // Review bots' open threads, one tab per bot, named `<bot>` among the tabs.
+  const bots = useMemo(() => (pr ? botReviews(pr) : []), [pr]);
+  const tabNames = [
+    "",
+    ...(ticket ? [JIRA_TAB] : []),
+    ...bots.map((b) => `<${b.bot}>`),
+    ...prompts.map((p) => p.name),
+  ];
   const tab = Math.max(0, tabNames.indexOf(tabName));
   const onJira = tabNames[tab] === JIRA_TAB;
+  const tabBot = bots.find((b) => `<${b.bot}>` === tabNames[tab]);
   const tabPrompt = prompts.find((p) => p.name === tabNames[tab]);
   const switchTab = (i: number) => {
     setTabName(tabNames[(i + tabNames.length) % tabNames.length]);
@@ -426,10 +436,13 @@ export default function App() {
     else if (files.length) setTabFile(next(files, shownFile!));
   };
 
-  // Findings of the tab's run: which are picked (until relaunch) and the keyboard cursor.
-  const review = tabRun?.review;
-  const reviewKey = tabRun ? `${tabRun.prId}/${tabRun.prompt}/${tabRun.startedAt}` : "";
-  const picked = picks[reviewKey] ?? review?.findings.map((f) => f.severity !== "nit") ?? [];
+  // Findings of the tab's run or bot: which are picked (until relaunch) and the keyboard cursor.
+  const review = tabBot
+    ? { summary: "", findings: tabBot.findings, posted: null, allInBody: false }
+    : tabRun?.review;
+  let reviewKey = tabRun ? `${tabRun.prId}/${tabRun.prompt}/${tabRun.startedAt}` : "";
+  if (tabBot) reviewKey = `${pr?.id}/${tabBot.key}`;
+  const picked = picks[reviewKey] ?? review?.findings.map(pickedByDefault) ?? [];
   const pickable = !!review?.findings.length && (!review.posted || !!fixPrompt);
   useEffect(() => setCursor(0), [reviewKey]);
   const togglePick = (i: number) =>
@@ -470,6 +483,8 @@ export default function App() {
   const tabs = tabNames.map((name) =>
     name === JIRA_TAB ? (
       "Jira"
+    ) : bots.some((b) => `<${b.bot}>` === name) ? (
+      name.slice(1, -1)
     ) : name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
     ) : (
@@ -479,8 +494,18 @@ export default function App() {
   const jiraBody = onJira && (
     <JiraView tickets={tickets} ticket={ticket} now={now} onTicket={setTicketKey} />
   );
+  const picker = {
+    picked,
+    cursor,
+    posting,
+    onToggle: togglePick,
+    onPost: tabBot ? undefined : postReview,
+    onFix: fixPrompt && fixPicked,
+    onOpen: (url: string) => fire(openUrl(url)),
+  };
   const tabBody =
     jiraBody ||
+    (tabBot && <BotView review={tabBot} picker={picker} />) ||
     (tabPrompt && selected && (
       <RunView
         prompt={tabPrompt}
@@ -488,15 +513,7 @@ export default function App() {
         stale={isStale(runOf(tabPrompt.name), pr?.headRefOid)}
         hasWorktree={!!wt?.path}
         now={now}
-        picker={{
-          picked,
-          cursor,
-          posting,
-          onToggle: togglePick,
-          onPost: postReview,
-          onFix: fixPrompt && fixPicked,
-          onOpen: (url) => fire(openUrl(url)),
-        }}
+        picker={picker}
         shownFile={shownFile}
         onFile={setTabFile}
         onRun={tabPrompt.name === FIX ? undefined : () => runPrompt(tabPrompt.name)}
@@ -648,7 +665,7 @@ export default function App() {
           : []),
       ];
     }),
-    ...(review && !review.posted && !post.isPending
+    ...(tabRun?.review && !tabRun.review.posted && !post.isPending
       ? [
           ...(picked.some(Boolean)
             ? [

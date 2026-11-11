@@ -3,7 +3,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Prompt, Review, Run } from "./api";
-import { relTime } from "./model";
+import { type BotReview, relTime } from "./model";
 
 // Clockwise path around the edge of a 3x3 grid (index 4, the center, stays empty).
 const SPINNER_PATH = [0, 1, 2, 5, 8, 7, 6, 3];
@@ -155,14 +155,20 @@ function StatusLine({ run, stale, now }: { run: Run; stale: boolean; now: number
   );
 }
 
-const SEVERITY: Record<string, string> = { blocker: "fail", "should-fix": "warn" };
+const SEVERITY: Record<string, string> = {
+  blocker: "fail",
+  "should-fix": "warn",
+  P0: "fail",
+  P1: "warn",
+};
 
 export type Picker = {
   picked: boolean[];
   cursor: number;
   posting: boolean;
   onToggle: (i: number) => void;
-  onPost: (approve: boolean) => void;
+  /** Unset where the findings are on GitHub already. */
+  onPost?: (approve: boolean) => void;
   /** Hands the picked findings to the fix agent; unset without a [fix] config. */
   onFix?: () => void;
   onOpen: (url: string) => void;
@@ -173,13 +179,11 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
   const { posted } = review;
   const n = p.picked.filter(Boolean).length;
   const fix = p.onFix && (
-    <>
-      {" · "}
-      <button className="head-btn" disabled={!n} onClick={p.onFix}>
-        fix ({n}) (f)
-      </button>
-    </>
+    <button className="head-btn" disabled={!n} onClick={p.onFix}>
+      fix ({n}) (f)
+    </button>
   );
+  const post = p.onPost;
   let actions;
   if (posted)
     actions = (
@@ -190,7 +194,7 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
         {review.allInBody && (
           <span className="warn"> · GitHub rejected the inline comments: all are in the body</span>
         )}
-        {fix}
+        {fix && <> · {fix}</>}
       </>
     );
   else if (p.posting)
@@ -203,15 +207,20 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
   else
     actions = (
       <>
-        <button className="head-btn" disabled={!n} onClick={() => p.onPost(false)}>
-          comment ({n})
-        </button>
-        {" · "}
-        <button className="head-btn" onClick={() => p.onPost(true)}>
-          approve{n ? ` with ${n}` : ""}
-        </button>
+        {post && (
+          <>
+            <button className="head-btn" disabled={!n} onClick={() => post(false)}>
+              comment ({n})
+            </button>
+            {" · "}
+            <button className="head-btn" onClick={() => post(true)}>
+              approve{n ? ` with ${n}` : ""}
+            </button>
+            {fix && " · "}
+          </>
+        )}
         {fix}
-        <span className="dim"> · j/k Space pick</span>
+        <span className="dim">{(post || fix) && " · "}j/k Space pick</span>
       </>
     );
   return (
@@ -236,7 +245,9 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
             >
               [{p.picked[i] ? "x" : " "}]
             </button>{" "}
-            <span className={SEVERITY[f.severity] ?? "dim"}>{f.severity || "note"}</span>{" "}
+            <span className={SEVERITY[f.severity.split(" ")[0]] ?? "dim"}>
+              {f.severity || "note"}
+            </span>{" "}
             <b>{f.title}</b>
             {f.path && (
               <span className="dim">
@@ -250,6 +261,22 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
         </div>
       ))}
       <div className="run-status">{actions}</div>
+    </div>
+  );
+}
+
+/** A review bot's open threads on the PR, to pick and hand to the fix agent. */
+export function BotView({ review, picker }: { review: BotReview; picker: Picker }) {
+  const findings = { summary: "", findings: review.findings, posted: null, allInBody: false };
+  return (
+    <div className="pr-pane">
+      <h1 className="pr-title">
+        {review.bot} <span className="dim">open review threads</span>
+      </h1>
+      <div className="dim run-keys">
+        [ / ] tabs{!picker.onFix && " · add [fix] to the config to fix these"}
+      </div>
+      <ReviewPicker review={findings} p={picker} />
     </div>
   );
 }

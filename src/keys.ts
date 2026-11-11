@@ -102,7 +102,7 @@ export const HELP: [string, string][] = [
   ["t", "inbox: next rule (all, then each rule)"],
   ["w", "open PR worktree (first open_with), or create it (worktrunk)"],
   ["W", "open PR worktree with… (all open_with entries)"],
-  ["[ / ]", "previous / next PR tab (the PR, its Jira tickets, then each prompt)"],
+  ["[ / ]", "previous / next PR tab (the PR, Jira, review bots, then each prompt)"],
   ["{ / }", "previous / next file of the prompt tab (window 1920px+), or ticket of the Jira tab"],
   ["r", "run or re-run the tab's prompt (creates the worktree first)"],
   ["c", "continue the tab's agent session in a terminal"],

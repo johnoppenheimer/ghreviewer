@@ -494,7 +494,7 @@ query($id: ID!, $after: String) {{
       reviewThreads(first: 100) {{
         nodes {{
           id path line originalLine isResolved isOutdated
-          comments(first: 50) {{ nodes {{ id createdAt url bodyHTML diffHunk author {{ login }} }} }}
+          comments(first: 50) {{ nodes {{ id createdAt url body bodyHTML diffHunk author {{ login }} }} }}
         }}
       }}
     }}

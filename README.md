@@ -79,7 +79,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `t`                 | show all rules in the inbox, then only each rule in turn                           |
 | `Cmd-R`             | sync now                                                                           |
 | `w` / `W`           | open the PR's worktree (or create it) / choose how to open                         |
-| `[` / `]`           | previous / next PR tab (the PR, Jira, then each prompt)                            |
+| `[` / `]`           | previous / next PR tab (the PR, Jira, review bots, then each prompt)               |
 | `{` / `}`           | previous / next file of the prompt tab (window 1920px+), or ticket of the Jira tab |
 | `r`                 | run or re-run the tab's prompt                                                     |
 | `c`                 | continue the tab's agent session in a terminal                                     |
@@ -117,6 +117,10 @@ Put `{review_format}` in a prompt, and the agent ends its answer with its findin
 - **Lines outside the diff.** GitHub rejects the whole review if one inline comment points outside the diff. The app then posts again with every finding in the body, and says so.
 - **Stale runs.** Comments go on the commit the agent read, so their lines stay right after new pushes.
 - **Once.** A run's review is posted once. Re-run the prompt for a new one.
+
+#### Review bots
+
+A PR with open review threads from Greptile (`greptile-apps`) or CodeRabbit (`coderabbitai`) gets a `greptile` or `coderabbit` tab listing them as findings, with Greptile's priority (`P0`–`P2`; `P2` starts unticked). Resolved threads are left out, and outdated ones are marked. They're on GitHub already, so these tabs only have `fix`.
 
 #### Fixing findings
 

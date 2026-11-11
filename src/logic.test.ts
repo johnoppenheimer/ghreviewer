@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import type { PrDetail, PrSummary } from "./api";
 import { createKeymap } from "./keys";
 import {
+  botReviews,
   canApprove,
   ghImageSrc,
   inScope,
   jiraClass,
+  pickedByDefault,
   relTime,
   shouldMarkRead,
   sidebarItems,
@@ -223,4 +225,43 @@ test("shouldMarkRead: only an unread PR you picked, and not while browsing repos
   expect(shouldMarkRead(unread, "gone", 1)).toBe(false);
   expect(shouldMarkRead({ ...unread, unread: false }, "a", 1)).toBe(false);
   expect(shouldMarkRead(null, null, 1)).toBe(false);
+});
+
+test("botReviews turns open bot threads into findings", () => {
+  const body =
+    '<a href="#"><img alt="P1" src="x"></a> **Leaks a handle**\n\nClose it.\n\n<a href="y">Fix in Cursor</a>';
+  const thread = (id: string, login: string, extra: object = {}) => ({
+    id,
+    path: "a.rs",
+    line: 3,
+    originalLine: 2,
+    isResolved: false,
+    isOutdated: false,
+    comments: { nodes: [{ body, bodyHTML: "", author: { login } }] },
+    ...extra,
+  });
+  const pr = {
+    reviewThreads: {
+      nodes: [
+        thread("1", "greptile-apps"),
+        thread("2", "greptile-apps", { isResolved: true }),
+        thread("3", "bob"),
+        thread("4", "greptile-apps", { isOutdated: true, line: null }),
+      ],
+    },
+  } as unknown as PrDetail;
+  const [r, ...rest] = botReviews(pr);
+  expect(rest).toEqual([]);
+  expect(r.bot).toBe("greptile");
+  expect(r.key).toBe("14");
+  expect(r.findings[0]).toEqual({
+    severity: "P1",
+    title: "Leaks a handle",
+    body: "Close it.",
+    path: "a.rs",
+    line: 3,
+  });
+  expect(r.findings[1]).toMatchObject({ severity: "P1 outdated", line: 2 });
+  expect(pickedByDefault(r.findings[1])).toBe(true);
+  expect(pickedByDefault({ ...r.findings[0], severity: "P2 outdated" })).toBe(false);
 });

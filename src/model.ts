@@ -1,4 +1,4 @@
-import type { PrDetail, PrSummary, Run, TicketRef } from "./api";
+import type { Finding, PrDetail, PrSummary, Run, TicketRef } from "./api";
 
 export type SideItem =
   | { key: string; kind: "run"; run: Run }
@@ -265,3 +265,44 @@ export function ghImageSrc(src: string): string | undefined {
   const m = src.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/(?:blob|raw)\/([^?#]+)/);
   return m ? `ghimg://localhost/${m[1]}/${m[2]}` : undefined;
 }
+
+/** Review bots by GitHub login, and the name of their tab. */
+const BOTS: Record<string, string> = { "greptile-apps": "greptile", coderabbitai: "coderabbit" };
+
+/** A bot's open review threads on a PR, as findings to pick; `key` changes with the threads. */
+export type BotReview = { bot: string; key: string; findings: Finding[] };
+
+export function botReviews(pr: PrDetail): BotReview[] {
+  const out: BotReview[] = [];
+  for (const t of pr.reviewThreads?.nodes ?? []) {
+    const c = t?.comments?.nodes?.[0];
+    const bot = BOTS[c?.author?.login ?? ""];
+    if (!t || !c || !bot || t.isResolved) continue;
+    const text = c.body ?? c.bodyHTML;
+    const title = text.match(/\*\*(.+?)\*\*|<strong>(.+?)<\/strong>/);
+    // Greptile's badge: <img alt="P1" ...>.
+    const severity = text.match(/alt="(P\d)"/)?.[1] ?? "";
+    // Without the title and the bot's HTML badges and links.
+    const body =
+      c.body === undefined
+        ? c.bodyHTML
+        : c.body
+            .split(/\n\s*\n/)
+            .filter((p) => !(title && p.includes(title[0])) && !p.trimStart().startsWith("<"))
+            .join("\n\n");
+    let review = out.find((r) => r.bot === bot);
+    if (!review) out.push((review = { bot, key: "", findings: [] }));
+    review.key += t.id;
+    review.findings.push({
+      severity: [severity, t.isOutdated && "outdated"].filter(Boolean).join(" "),
+      title: title?.[1] ?? title?.[2] ?? "comment",
+      body,
+      path: t.path,
+      line: t.line ?? t.originalLine,
+    });
+  }
+  return out;
+}
+
+/** Findings ticked until you change it: all but nits and Greptile's lowest priority. */
+export const pickedByDefault = (f: Finding) => !["nit", "P2"].includes(f.severity.split(" ")[0]);

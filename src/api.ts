@@ -162,6 +162,8 @@ export type ThreadComment = {
   id: string;
   createdAt: string;
   url: string;
+  /** Markdown; missing from details cached before it was fetched. */
+  body?: string;
   bodyHTML: string;
   diffHunk: string;
   author: Login;
