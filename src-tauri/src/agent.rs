@@ -108,8 +108,16 @@ pub fn findings_text(findings: &[Finding]) -> String {
 
 const MAX_ACTIVITY: usize = 500;
 
-fn argv(spec: &Prompt, out: &Path, title: &str) -> Vec<String> {
+fn argv(spec: &Prompt, out: &Path, title: &str, base: &str, prompt: &str) -> Vec<String> {
     let mut args: Vec<String> = match spec.harness {
+        // --agent: never prompts or opens a browser to sign in.
+        Harness::Greptile => {
+            let mut a = vec!["greptile", "review", "--json", "--agent", "-b", base];
+            if !prompt.trim().is_empty() {
+                a.extend(["--instructions", prompt.trim()]);
+            }
+            a
+        }
         Harness::Opencode => vec!["opencode", "run", "--format", "json", "--title", title],
         Harness::Claude => vec![
             "claude",
@@ -137,6 +145,7 @@ pub fn resume_command(run: &Run) -> Option<String> {
     let resume = match run.harness {
         Harness::Opencode => format!("opencode -s {id}"),
         Harness::Claude => format!("claude --resume {id}"),
+        Harness::Greptile => return None,
     };
     Some(format!("cd {} && {resume}", shell_quote(path)))
 }
@@ -206,6 +215,77 @@ impl Run {
         }
     }
 
+    /// Turns the JSON `greptile review --json` printed into the run's review and answer.
+    fn take_greptile(&mut self) -> Result<()> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Out {
+            #[serde(default)]
+            summary: String,
+            confidence: Option<u8>,
+            #[serde(default)]
+            confidence_reasoning: String,
+            security_summary: Option<String>,
+            #[serde(default)]
+            comments: Vec<Comment>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Comment {
+            path: Option<String>,
+            end_line: Option<u64>,
+            side: Option<String>,
+            #[serde(default)]
+            severity: String,
+            #[serde(default)]
+            security_issue: bool,
+            #[serde(default)]
+            body: String,
+            suggestion: Option<Value>,
+        }
+        if self.error.is_some() {
+            return Ok(()); // failed: what it printed isn't a review
+        }
+        let out: Out = serde_json::from_str(&self.output).context("greptile's JSON")?;
+        let findings = out.comments.into_iter().map(|c| {
+            // The body opens with the title in bold; else its first line is the title.
+            let body = c.body.trim();
+            let bold = body.strip_prefix("**").and_then(|b| b.split_once("**"));
+            let (title, rest) = bold.unwrap_or(body.split_once('\n').unwrap_or((body, "")));
+            let (title, mut body) = (title.trim().to_string(), rest.trim().to_string());
+            if let Some(Value::String(s)) = c.suggestion {
+                body += &format!("\n\nSuggested change:\n```\n{}\n```", s.trim_end());
+            }
+            let severity = [
+                c.severity.as_str(),
+                if c.security_issue { "security" } else { "" },
+            ];
+            Finding {
+                severity: severity.join(" ").trim().into(),
+                title,
+                body,
+                // Only lines of the new version can carry an inline comment.
+                line: c.end_line.filter(|_| c.side.as_deref() != Some("old")),
+                path: c.path,
+            }
+        });
+        self.review = Some(Review {
+            summary: out.summary,
+            findings: findings.collect(),
+            ..Default::default()
+        });
+        let mut notes = Vec::new();
+        if let Some(n) = out.confidence {
+            notes.push(format!(
+                "**Confidence {n}/5.** {}",
+                out.confidence_reasoning
+            ));
+        }
+        notes.extend(out.security_summary.map(|s| format!("**Security.** {s}")));
+        self.output = notes.join("\n\n");
+        Ok(())
+    }
+
     fn tool(&mut self, line: String) {
         if self.activity.len() < MAX_ACTIVITY {
             self.activity.push(line);
@@ -214,6 +294,12 @@ impl Run {
 
     /// Applies one line of the harness's JSON output. Returns whether anything shown changed.
     pub fn apply(&mut self, line: &str) -> bool {
+        // One JSON document over many lines, read once the review is done (`take_greptile`).
+        if self.harness == Harness::Greptile {
+            self.output.push_str(line);
+            self.output.push('\n');
+            return false;
+        }
         let Ok(ev) = serde_json::from_str::<Value>(line) else {
             return false;
         };
@@ -271,16 +357,23 @@ impl Run {
 
 /// Runs `prompt` with the harness in `cwd`, calling `on_update` whenever the run changes.
 /// Sets `output`, `session_id`, `activity`, `error` and `files`; the caller sets the status.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     spec: &Prompt,
     cwd: &Path,
     out: &Path,
     title: &str,
+    base: &str,
     prompt: &str,
     run: &mut Run,
     on_update: impl FnMut(&Run),
 ) -> Result<()> {
-    run_argv(&argv(spec, out, title), cwd, prompt, run, on_update).await?;
+    let argv = argv(spec, out, title, base, prompt);
+    if spec.harness == Harness::Greptile {
+        run_argv(&argv, cwd, "", run, on_update).await?;
+        return run.take_greptile();
+    }
+    run_argv(&argv, cwd, prompt, run, on_update).await?;
     run.take_review();
     run.files = files_in(out);
     for f in mentioned_files(&run.output, cwd) {
@@ -494,17 +587,56 @@ mod tests {
     }
 
     #[test]
+    fn greptile_review() {
+        let mut run = Run {
+            harness: Harness::Greptile,
+            ..Default::default()
+        };
+        let json = r#"{"summary":"Moves secrets.","confidence":4,"confidenceReasoning":"Safe.",
+            "securitySummary":null,"comments":[
+            {"path":"a.mjs","startLine":124,"endLine":150,"side":"new","severity":"P2",
+             "securityIssue":true,"body":"**Lacks tests**\n\nAdd some.","suggestion":"x = 1"},
+            {"path":"b.rs","endLine":3,"side":"old","severity":"P1","body":"No title\nhere"}]}"#;
+        for line in json.lines() {
+            assert!(!run.apply(line));
+        }
+        run.take_greptile().unwrap();
+        let review = run.review.unwrap();
+        assert_eq!(review.summary, "Moves secrets.");
+        let f = &review.findings;
+        assert_eq!(
+            (f[0].severity.as_str(), f[0].title.as_str()),
+            ("P2 security", "Lacks tests")
+        );
+        assert_eq!(f[0].body, "Add some.\n\nSuggested change:\n```\nx = 1\n```");
+        assert_eq!(
+            (f[0].path.as_deref(), f[0].line),
+            (Some("a.mjs"), Some(150))
+        );
+        assert_eq!(
+            (f[1].title.as_str(), f[1].body.as_str()),
+            ("No title", "here")
+        );
+        assert_eq!(f[1].line, None);
+        assert_eq!(run.output, "**Confidence 4/5.** Safe.");
+    }
+
+    #[test]
     fn harness_argv_and_resume() {
         let out = Path::new("/o");
         assert_eq!(
-            argv(&spec(Harness::Opencode), out, "t"),
+            argv(&spec(Harness::Opencode), out, "t", "main", "x"),
             [
                 "opencode", "run", "--format", "json", "--title", "t", "--model", "m"
             ]
         );
         assert_eq!(
-            argv(&spec(Harness::Claude), out, "t")[..4],
+            argv(&spec(Harness::Claude), out, "t", "main", "x")[..4],
             ["claude", "-p", "--add-dir", "/o"]
+        );
+        assert_eq!(
+            argv(&spec(Harness::Greptile), out, "t", "dev", " be brief ")[4..],
+            ["-b", "dev", "--instructions", "be brief", "--model", "m"]
         );
         let mut run = Run {
             path: Some("/w/it's".into()),

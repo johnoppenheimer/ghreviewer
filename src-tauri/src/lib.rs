@@ -520,9 +520,16 @@ async fn run_task(
     let prompt = local::fill(std::slice::from_ref(&spec.prompt), &vars).remove(0);
     run.path = Some(path.clone());
     let title = format!("{}#{} {}", pr.repo, pr.number, spec.name);
-    agent::run(spec, Path::new(&path), &out, &title, &prompt, run, |r| {
-        save_run(app, st, token, r, false)
-    })
+    agent::run(
+        spec,
+        Path::new(&path),
+        &out,
+        &title,
+        &pr.base,
+        &prompt,
+        run,
+        |r| save_run(app, st, token, r, false),
+    )
     .await
 }
 
@@ -556,6 +563,9 @@ fn fix_findings(
     let fix = fix.ok_or("no [fix] section in the config")?;
     if findings.is_empty() {
         return Err("pick findings to fix first".into());
+    }
+    if fix.harness == config::Harness::Greptile {
+        return Err("[fix] needs an agent harness: opencode or claude".into());
     }
     let spec = Prompt {
         name: FIX.into(),

@@ -182,7 +182,7 @@ command = ["open", "-a", "Ghostty", "{path}"]
 
 ### Prompts
 
-`harness` is `opencode` or `claude`, and `args` are extra flags for it (model, permissions, ...). In `prompt`, these are replaced:
+`harness` is `opencode`, `claude` or `greptile`, and `args` are extra flags for it (model, permissions, ...). In `prompt`, these are replaced:
 
 | Placeholder       | Replaced with                                                           |
 | ----------------- | ----------------------------------------------------------------------- |
@@ -206,6 +206,14 @@ name = "diagram"
 harness = "claude"
 prompt = "Draw what PR {url} changes as {out}/diagram.html and mention that path."
 args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
+```
+
+`harness = "greptile"` runs [Greptile's CLI](https://www.greptile.com/docs/code-review/greptile-cli) instead of an agent: `greptile review --json -b {base}` on the worktree's committed changes. Its findings show like a `{review_format}` prompt's, to post or fix, with its confidence below them. `prompt` is optional and goes to `--instructions`. A review takes a few minutes and counts against your Greptile plan; sign in once with `greptile login`. Name it something other than `greptile`, which is the tab of Greptile's GitHub comments.
+
+```toml
+[[prompts]]
+name = "greptile-cli"
+harness = "greptile"
 ```
 
 ### Fix

@@ -320,7 +320,7 @@ export function RunView(props: {
         {running && ": cancel · "}[ / ] tabs
         {files.length > 1 && <span className="run-file-keys"> · {"{ / }"} files</span>}
       </div>
-      {!run && <pre className="run-prompt">{prompt.prompt}</pre>}
+      {!run && prompt.prompt && <pre className="run-prompt">{prompt.prompt}</pre>}
       {run?.error && <pre className="run-error fail">{run.error}</pre>}
       <div className={files.length ? "run-split" : undefined}>
         {files.length > 0 && (

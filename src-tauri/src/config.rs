@@ -59,12 +59,14 @@ command = ["open", "-a", "Cursor", "{path}"]
 
 # Prompts a coding agent runs headless in a PR's worktree (created first if needed).
 # Each gets a tab in the PR pane: `[` / `]` switch tabs, `r` runs or re-runs the tab's prompt,
-# `c` continues its session in `terminal`. harness is "opencode" or "claude"; `args` are
+# `c` continues its session in `terminal`. harness is "opencode", "claude" or "greptile"; `args` are
 # extra flags for it (model, permissions…). In `prompt`, {url} {repo} {number} {branch} {base}
 # {path} (the worktree) and {out} (a folder kept per PR and prompt) are replaced.
 # .html/.svg/.png files in {out} (emptied on each run) or mentioned in the answer show in the tab.
 # {review_format} asks the agent for findings you then pick and post as a GitHub review, e.g.
 # prompt = "/pr-review {url}\n\n{review_format}"
+# harness = "greptile" runs `greptile review --json -b {base}` instead: its findings, to pick and
+# post or fix, with `prompt` as optional extra instructions. Each run costs a Greptile review.
 # Agents read PR text written by others and act with your rights: allow only what a prompt needs
 # (claude: --allowedTools as below; opencode: `deny` rules such as `gh pr review *` in its config).
 # [[prompts]]
@@ -163,6 +165,8 @@ impl Jira {
 pub struct Prompt {
     pub name: String,
     pub harness: Harness,
+    /// Optional for greptile: extra review instructions.
+    #[serde(default)]
     pub prompt: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -183,6 +187,8 @@ pub enum Harness {
     #[default]
     Opencode,
     Claude,
+    /// Greptile's CLI: a review, not an agent.
+    Greptile,
 }
 
 /// A command that opens a worktree folder, e.g. an editor or a terminal session.

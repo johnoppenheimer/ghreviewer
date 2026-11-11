@@ -79,7 +79,7 @@ export type Config = {
 };
 export type Prompt = {
   name: string;
-  harness: "opencode" | "claude";
+  harness: "opencode" | "claude" | "greptile";
   prompt: string;
   args: string[];
 };
