@@ -493,13 +493,24 @@ a:hover {
   font-size: 0.9em;
   margin-bottom: 6px;
 }
+/* Comments breathe; the events between them stay a tight log. */
 .item {
-  margin: 10px 0;
+  margin: 18px 0;
   border-left: 1px solid var(--border);
   padding-left: 10px;
 }
+.item .item {
+  margin: 12px 0;
+}
+details.item:not([open]) {
+  margin: 6px 0;
+}
+.section-head + .item {
+  margin-top: 0;
+}
 .item-head {
   color: var(--dim);
+  margin-bottom: 6px;
 }
 .item-head b {
   color: var(--fg);
@@ -560,14 +571,18 @@ details[open] > summary::before {
 .md pre,
 .md blockquote,
 .md table {
-  margin: 6px 0;
+  margin: 8px 0;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0;
 }
 .md h1,
 .md h2,
 .md h3,
 .md h4 {
   font-size: 1.1em;
-  margin: 12px 0 4px;
+  margin: 16px 0 6px;
 }
 .md h1,
 .md h2 {
