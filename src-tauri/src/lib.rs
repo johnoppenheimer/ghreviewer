@@ -241,7 +241,10 @@ fn get_config(st: State<'_, Arc<AppState>>) -> Config {
 
 #[tauri::command]
 fn list_repos(st: State<'_, Arc<AppState>>) -> Res<Vec<Repo>> {
-    st.db.repos().map_err(err)
+    let filters = st.cfg.read().unwrap().filters.clone();
+    let mut repos = st.db.repos().map_err(err)?;
+    repos.retain(|r| db::repo_passes(&filters, &r.name_with_owner));
+    Ok(repos)
 }
 
 #[tauri::command]

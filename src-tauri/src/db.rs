@@ -262,8 +262,12 @@ fn is_unread(last_others: Option<&str>, seen: Option<&str>, forced: bool) -> boo
 fn passes(f: &Filters, pr: &PrSummary) -> bool {
     !(f.hide_drafts && pr.is_draft)
         && !f.exclude_authors.iter().any(|p| glob(p, &pr.author))
-        && (f.include_repos.is_empty() || f.include_repos.iter().any(|p| glob(p, &pr.repo)))
-        && !f.exclude_repos.iter().any(|p| glob(p, &pr.repo))
+        && repo_passes(f, &pr.repo)
+}
+
+pub fn repo_passes(f: &Filters, repo: &str) -> bool {
+    (f.include_repos.is_empty() || f.include_repos.iter().any(|p| glob(p, repo)))
+        && !f.exclude_repos.iter().any(|p| glob(p, repo))
 }
 
 /// Case-insensitive match where `*` stands for any run of characters.
