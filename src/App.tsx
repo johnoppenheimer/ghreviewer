@@ -2,7 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type PrDetail, type PrSummary, type Repo, type Run, type Ticket, api } from "./api";
+import {
+  type PrDetail,
+  type PrSummary,
+  type Prompt,
+  type Repo,
+  type Run,
+  type Ticket,
+  api,
+} from "./api";
 import { JiraView } from "./JiraView";
 import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
@@ -27,6 +35,8 @@ const NO_RUNS: Run[] = [];
 const NO_TICKETS: Ticket[] = [];
 /** Name of the Jira tab among the PR pane tabs (the others are "" and prompt names). */
 const JIRA_TAB = "<jira>";
+/** Prompt name of the fix agent's runs (`FIX` in src-tauri/src/lib.rs). */
+const FIX = "fix";
 
 /** useState that survives relaunches (webview localStorage). */
 function usePersisted<T>(key: string, initial: T) {
@@ -361,7 +371,6 @@ export default function App() {
     );
 
   // Prompt tabs and their latest runs on the selected PR.
-  const prompts = config?.prompts ?? [];
   const pr = detail.data?.id === selected?.id ? detail.data : undefined;
   const runs = useQuery({
     queryKey: ["runs", selected?.id],
@@ -369,6 +378,9 @@ export default function App() {
     enabled: !!selected,
   }).data;
   const runOf = (name: string) => runs?.find((r) => r.prompt === name);
+  // The fix agent gets a tab once it has run on the PR.
+  const fixPrompt: Prompt | undefined = config?.fix ? { name: FIX, ...config.fix } : undefined;
+  const prompts = [...(config?.prompts ?? []), ...(fixPrompt && runOf(FIX) ? [fixPrompt] : [])];
   // Jira tickets named in the PR title, from the cache the sync fills.
   const ticketKeys = selected?.jira.map((t) => t.key) ?? [];
   const tickets =
@@ -390,8 +402,8 @@ export default function App() {
   const openRun = (run: Run) => {
     const target = inbox.find((p) => p.id === run.prId);
     // PR left the inbox or the prompt left the config: nothing to show, just clear it.
-    if (!target || !prompts.some((p) => p.name === run.prompt))
-      return fire(api.markRunSeen(run.prId, run.prompt));
+    const known = prompts.some((p) => p.name === run.prompt) || (run.prompt === FIX && fixPrompt);
+    if (!target || !known) return fire(api.markRunSeen(run.prId, run.prompt));
     if (!matchesFilter(target, filters[1])) setFilter(1, "");
     if (!inRule(target)) setRuleName("");
     setSideKey("all");
@@ -405,7 +417,7 @@ export default function App() {
   useEffect(() => {
     if (readable && tabRun) fire(api.markRunSeen(tabRun.prId, tabRun.prompt));
   }, [readable, tabRun?.prId, tabRun?.prompt, tabRun?.startedAt]);
-  const runPrompt = (name: string) => pr && fire(api.runPrompt(name, pr));
+  const runPrompt = (name: string) => pr && name !== FIX && fire(api.runPrompt(name, pr));
   const files = tabRun?.files ?? [];
   const shownFile = tabFile && files.includes(tabFile) ? tabFile : files[0];
   const switchFile = (delta: number) => {
@@ -418,7 +430,7 @@ export default function App() {
   const review = tabRun?.review;
   const reviewKey = tabRun ? `${tabRun.prId}/${tabRun.prompt}/${tabRun.startedAt}` : "";
   const picked = picks[reviewKey] ?? review?.findings.map((f) => f.severity !== "nit") ?? [];
-  const pickable = !!review?.findings.length && !review.posted;
+  const pickable = !!review?.findings.length && (!review.posted || !!fixPrompt);
   useEffect(() => setCursor(0), [reviewKey]);
   const togglePick = (i: number) =>
     setPicks((p) => ({ ...p, [reviewKey]: picked.map((v, j) => (i === j ? !v : v)) }));
@@ -437,6 +449,12 @@ export default function App() {
       picked: picked.flatMap((v, i) => (v ? [i] : [])),
       approve,
     });
+  const fixPicked = () => {
+    const findings = review?.findings.filter((_, i) => picked[i]) ?? [];
+    if (!pr || !fixPrompt || !findings.length) return;
+    fire(api.fix(pr, findings));
+    setTabName(FIX);
+  };
   // Approving straight from the PR tab, without a prompt.
   const approvable = tab === 0 && !!pr && canApprove(pr, status?.viewer);
   const openApprove = () => {
@@ -476,11 +494,12 @@ export default function App() {
           posting,
           onToggle: togglePick,
           onPost: postReview,
+          onFix: fixPrompt && fixPicked,
           onOpen: (url) => fire(openUrl(url)),
         }}
         shownFile={shownFile}
         onFile={setTabFile}
-        onRun={() => runPrompt(tabPrompt.name)}
+        onRun={tabPrompt.name === FIX ? undefined : () => runPrompt(tabPrompt.name)}
         onOpenFile={(path) => fire(api.openPath(selected.id, path))}
       />
     ));
@@ -553,6 +572,8 @@ export default function App() {
         return tabPrompt && selected && fire(api.continueRun(selected.id, tabPrompt.name));
       case "approve":
         return openApprove();
+      case "fix":
+        return fixPicked();
       case "toggleEmpty":
         return focus === 0 && setOnlyWithPrs((v) => !v);
       case "cycleRule":
@@ -611,7 +632,9 @@ export default function App() {
       const run = runOf(p.name);
       const show = () => switchTab(tabNames.indexOf(p.name));
       return [
-        ...(pr ? [{ label: `run ${p.name}`, run: () => (show(), runPrompt(p.name)) }] : []),
+        ...(pr && p.name !== FIX
+          ? [{ label: `run ${p.name}`, run: () => (show(), runPrompt(p.name)) }]
+          : []),
         ...(run?.status === "running" && selected
           ? [{ label: `cancel ${p.name}`, run: () => fire(api.cancelRun(selected.id, p.name)) }]
           : []),
@@ -637,6 +660,9 @@ export default function App() {
             : []),
           { label: "post review: approve", run: () => postReview(true) },
         ]
+      : []),
+    ...(fixPrompt && picked.some(Boolean)
+      ? [{ label: `fix ${picked.filter(Boolean).length} findings`, run: fixPicked }]
       : []),
     {
       label: showHidden ? "hide hidden repos" : "show hidden repos",

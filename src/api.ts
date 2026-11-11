@@ -68,6 +68,8 @@ export type Config = {
   clone_roots: string[];
   open_with: { name: string; command: string[] }[];
   prompts: Prompt[];
+  /** The agent picked findings go to; its runs are those of a prompt named "fix". */
+  fix: Omit<Prompt, "name"> | null;
   /** `token` is never read back: set it to replace the one in the file. */
   jira: { url: string; email: string; prefixes: string[]; token_env: string; token?: string };
   rules: Rule[];
@@ -214,6 +216,17 @@ export type PrDetail = {
 export const list = <T>(n: Nodes<T> | undefined): T[] =>
   (n?.nodes ?? []).filter((x): x is T => x != null);
 
+/** The PR a run works on (`Target` in src-tauri/src/lib.rs). */
+const target = (pr: PrDetail) => ({
+  id: pr.id,
+  repo: pr.repository.nameWithOwner,
+  number: pr.number,
+  url: pr.url,
+  branch: pr.headRefName,
+  base: pr.baseRefName,
+  headOid: pr.headRefOid,
+});
+
 export const api = {
   status: () => invoke<Status>("get_status"),
   config: () => invoke<Config>("get_config"),
@@ -237,18 +250,9 @@ export const api = {
   activeRuns: () => invoke<Run[]>("list_active_runs"),
   markRunSeen: (prId: string, prompt: string) => invoke<void>("mark_run_seen", { prId, prompt }),
   runPrompt: (prompt: string, pr: PrDetail) =>
-    invoke<void>("run_prompt", {
-      prompt,
-      pr: {
-        id: pr.id,
-        repo: pr.repository.nameWithOwner,
-        number: pr.number,
-        url: pr.url,
-        branch: pr.headRefName,
-        base: pr.baseRefName,
-        headOid: pr.headRefOid,
-      },
-    }),
+    invoke<void>("run_prompt", { prompt, pr: target(pr) }),
+  fix: (pr: PrDetail, findings: Finding[]) =>
+    invoke<void>("fix_findings", { pr: target(pr), findings }),
   cancelRun: (prId: string, prompt: string) => invoke<void>("cancel_run", { prId, prompt }),
   continueRun: (prId: string, prompt: string) => invoke<void>("continue_run", { prId, prompt }),
   postReview: (prId: string, prompt: string, picked: number[], approve: boolean) =>

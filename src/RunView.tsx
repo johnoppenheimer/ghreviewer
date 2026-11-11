@@ -163,6 +163,8 @@ export type Picker = {
   posting: boolean;
   onToggle: (i: number) => void;
   onPost: (approve: boolean) => void;
+  /** Hands the picked findings to the fix agent; unset without a [fix] config. */
+  onFix?: () => void;
   onOpen: (url: string) => void;
 };
 
@@ -170,6 +172,14 @@ export type Picker = {
 function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
   const { posted } = review;
   const n = p.picked.filter(Boolean).length;
+  const fix = p.onFix && (
+    <>
+      {" · "}
+      <button className="head-btn" disabled={!n} onClick={p.onFix}>
+        fix ({n}) (f)
+      </button>
+    </>
+  );
   let actions;
   if (posted)
     actions = (
@@ -180,6 +190,7 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
         {review.allInBody && (
           <span className="warn"> · GitHub rejected the inline comments: all are in the body</span>
         )}
+        {fix}
       </>
     );
   else if (p.posting)
@@ -199,6 +210,7 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
         <button className="head-btn" onClick={() => p.onPost(true)}>
           approve{n ? ` with ${n}` : ""}
         </button>
+        {fix}
         <span className="dim"> · j/k Space pick</span>
       </>
     );
@@ -219,7 +231,7 @@ function ReviewPicker({ review, p }: { review: Review; p: Picker }) {
               className="head-btn"
               role="checkbox"
               aria-checked={p.picked[i]}
-              disabled={!!posted}
+              disabled={!!posted && !p.onFix}
               onClick={() => p.onToggle(i)}
             >
               [{p.picked[i] ? "x" : " "}]
@@ -252,7 +264,8 @@ export function RunView(props: {
   /** File tab shown beside the review (window 1920px+). */
   shownFile: string | undefined;
   onFile: (path: string) => void;
-  onRun: () => void;
+  /** Unset for the fix tab: it runs from picked findings. */
+  onRun?: () => void;
   onOpenFile: (path: string) => void;
 }) {
   const { prompt, run, stale, hasWorktree, now, picker, shownFile, onFile, onRun, onOpenFile } =
@@ -275,7 +288,7 @@ export function RunView(props: {
         </div>
       )}
       <div className="dim run-keys">
-        {run && "r re-run · "}
+        {run && onRun && "r re-run · "}
         {run?.sessionId && "c continue in terminal · "}
         {running && ": cancel · "}[ / ] tabs
         {files.length > 1 && <span className="run-file-keys"> · {"{ / }"} files</span>}

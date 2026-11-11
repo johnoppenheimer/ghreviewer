@@ -6,7 +6,7 @@ mod jira;
 mod local;
 mod sync;
 
-use agent::{Review, Run, RunStatus};
+use agent::{Finding, Review, Run, RunStatus};
 use anyhow::Context;
 use config::{Config, Prompt, Settings};
 use db::Db;
@@ -472,6 +472,7 @@ async fn run_task(
     token: u64,
     spec: &Prompt,
     pr: &Target,
+    findings: &str,
     run: &mut Run,
 ) -> anyhow::Result<()> {
     let roots = clone_roots(st);
@@ -513,6 +514,8 @@ async fn run_task(
         ("url", &pr.url),
         ("out", &out_str),
         ("review_format", agent::REVIEW_FORMAT),
+        // Last, so placeholders written in the findings aren't replaced.
+        ("findings", findings),
     ];
     let prompt = local::fill(std::slice::from_ref(&spec.prompt), &vars).remove(0);
     run.path = Some(path.clone());
@@ -535,6 +538,48 @@ fn run_prompt(app: AppHandle, st: State<'_, Arc<AppState>>, prompt: String, pr: 
         .find(|p| p.name == prompt)
         .cloned();
     let spec = spec.ok_or("no such prompt in the config")?;
+    start_run(app, st.inner().clone(), spec, pr, String::new())
+}
+
+/// Name of the fix agent's runs and tab.
+const FIX: &str = "fix";
+
+/// Hands findings picked in a review to the `[fix]` agent, as a run of the `fix` prompt.
+#[tauri::command]
+fn fix_findings(
+    app: AppHandle,
+    st: State<'_, Arc<AppState>>,
+    pr: Target,
+    findings: Vec<Finding>,
+) -> Res<()> {
+    let fix = st.cfg.read().unwrap().fix.clone();
+    let fix = fix.ok_or("no [fix] section in the config")?;
+    if findings.is_empty() {
+        return Err("pick findings to fix first".into());
+    }
+    let spec = Prompt {
+        name: FIX.into(),
+        harness: fix.harness,
+        prompt: fix.prompt,
+        args: fix.args,
+    };
+    start_run(
+        app,
+        st.inner().clone(),
+        spec,
+        pr,
+        agent::findings_text(&findings),
+    )
+}
+
+fn start_run(
+    app: AppHandle,
+    st: Arc<AppState>,
+    spec: Prompt,
+    pr: Target,
+    findings: String,
+) -> Res<()> {
+    let prompt = spec.name.clone();
     let run = Run {
         pr_id: pr.id.clone(),
         repo: pr.repo.clone(),
@@ -551,10 +596,10 @@ fn run_prompt(app: AppHandle, st: State<'_, Arc<AppState>>, prompt: String, pr: 
     let mut running = st.runs.lock().unwrap();
     st.db.put_run(&run).map_err(err)?;
     let task = {
-        let (app, st) = (app.clone(), st.inner().clone());
+        let (app, st) = (app.clone(), st.clone());
         tauri::async_runtime::spawn(async move {
             let mut run = run;
-            let res = run_task(&app, &st, token, &spec, &pr, &mut run).await;
+            let res = run_task(&app, &st, token, &spec, &pr, &findings, &mut run).await;
             if let Err(e) = res {
                 run.error.get_or_insert_with(|| err(e));
             }
@@ -853,6 +898,7 @@ pub fn run() {
             list_active_runs,
             mark_run_seen,
             run_prompt,
+            fix_findings,
             cancel_run,
             continue_run,
             post_review,

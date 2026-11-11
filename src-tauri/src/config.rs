@@ -73,6 +73,13 @@ command = ["open", "-a", "Cursor", "{path}"]
 # prompt = "Use the diagram-design skill to draw what PR {url} changes and the author's intent. Save it as {out}/diagram.html and mention that path."
 # args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
 
+# The agent `f` (or `fix`) hands the findings picked in a review to. It runs in the worktree like
+# a prompt, in a `fix` tab; in `prompt`, {findings} is the picked findings, plus the same as above.
+# [fix]
+# harness = "claude"
+# prompt = "Fix these review findings on {branch}, one commit per fix. Don't push.\n\n{findings}"
+# args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)"]
+
 # Jira Cloud (optional). PR titles naming a ticket, like `[TI-123] Fix login` or `TI-123: fix login`,
 # get a `Jira` tab with the ticket, and its key is colored by status in the inbox.
 # `prefixes` are your project keys. The API token (https://id.atlassian.com/manage-profile/security/api-tokens)
@@ -126,6 +133,7 @@ pub struct Config {
     pub open_with: Vec<Opener>,
     pub terminal: Vec<String>,
     pub prompts: Vec<Prompt>,
+    pub fix: Option<Fix>,
     pub jira: Jira,
     pub themes: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -154,6 +162,15 @@ impl Jira {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
     pub name: String,
+    pub harness: Harness,
+    pub prompt: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+/// `[fix]`: the agent that fixes the findings picked in a review.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fix {
     pub harness: Harness,
     pub prompt: String,
     #[serde(default)]
@@ -200,6 +217,7 @@ impl Default for Config {
             .map(Into::into)
             .to_vec(),
             prompts: vec![],
+            fix: None,
             jira: Jira::default(),
             rules: vec![],
             filters: Filters::default(),
@@ -397,6 +415,8 @@ mod tests {
         let p = uncomment("# [[prompts]]", 5).prompts.remove(0);
         assert_eq!((p.harness, p.args.len()), (Harness::Claude, 5));
         assert_eq!(uncomment("# terminal", 1).terminal.len(), 7);
+        let fix = uncomment("# [fix]", 4).fix.unwrap();
+        assert!(fix.prompt.contains("{findings}") && fix.args.len() == 4);
         assert!(!c.jira.enabled());
         let j = uncomment("# [jira]", 5).jira;
         assert!(j.enabled() && j.token_env == "JIRA_API_TOKEN");

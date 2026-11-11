@@ -28,6 +28,7 @@ export type Action =
   | "nextFile"
   | "runPrompt"
   | "continueRun"
+  | "fix"
   | "approve"
   | "collapse";
 
@@ -63,6 +64,7 @@ const SINGLE: Record<string, Action> = {
   "}": "nextFile",
   r: "runPrompt",
   c: "continueRun",
+  f: "fix",
   a: "approve",
   " ": "collapse",
 };
@@ -104,6 +106,7 @@ export const HELP: [string, string][] = [
   ["{ / }", "previous / next file of the prompt tab (window 1920px+), or ticket of the Jira tab"],
   ["r", "run or re-run the tab's prompt (creates the worktree first)"],
   ["c", "continue the tab's agent session in a terminal"],
+  ["f", "send the picked findings to the [fix] agent"],
   ["p / x", "pin / hide repo (sidebar)"],
   ["H", "show hidden repos"],
   ["e", "hide repos without PRs (sidebar)"],

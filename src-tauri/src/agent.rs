@@ -88,6 +88,24 @@ pub const REVIEW_FORMAT: &str = r#"End your final answer with your findings as a
 
 const FENCE: &str = "```ghreviewer";
 
+/// What `{findings}` in the fix prompt expands to.
+pub fn findings_text(findings: &[Finding]) -> String {
+    let one = |(i, f): (usize, &Finding)| {
+        let mut head = format!("## {}. {}", i + 1, f.title);
+        if !f.severity.is_empty() {
+            head += &format!(" ({})", f.severity);
+        }
+        let place = match (&f.path, f.line) {
+            (Some(path), Some(line)) => format!("\n`{path}:{line}`"),
+            (Some(path), None) => format!("\n`{path}`"),
+            _ => String::new(),
+        };
+        format!("{head}{place}\n\n{}", f.body.trim())
+    };
+    let all: Vec<String> = findings.iter().enumerate().map(one).collect();
+    all.join("\n\n")
+}
+
 const MAX_ACTIVITY: usize = 500;
 
 fn argv(spec: &Prompt, out: &Path, title: &str) -> Vec<String> {
@@ -372,6 +390,26 @@ mod tests {
             prompt: "x".into(),
             args: vec!["--model".into(), "m".into()],
         }
+    }
+
+    #[test]
+    fn findings_for_the_fix_prompt() {
+        let f = |title: &str, path: Option<&str>, line: Option<u64>| Finding {
+            severity: if line.is_some() {
+                "P1".into()
+            } else {
+                String::new()
+            },
+            title: title.into(),
+            body: " Do it.\n".into(),
+            path: path.map(Into::into),
+            line,
+        };
+        let text = findings_text(&[f("Leak", Some("a.rs"), Some(3)), f("Docs", None, None)]);
+        assert_eq!(
+            text,
+            "## 1. Leak (P1)\n`a.rs:3`\n\nDo it.\n\n## 2. Docs\n\nDo it."
+        );
     }
 
     #[test]

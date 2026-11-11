@@ -83,6 +83,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `{` / `}`           | previous / next file of the prompt tab (window 1920px+), or ticket of the Jira tab |
 | `r`                 | run or re-run the tab's prompt                                                     |
 | `c`                 | continue the tab's agent session in a terminal                                     |
+| `f`                 | send the picked findings to the `[fix]` agent                                      |
 | `p` / `x`           | pin / hide a repo in the sidebar                                                   |
 | `H`, `e`, `Space`   | show hidden repos, hide repos without PRs, collapse an org                         |
 | `Space`             | pick or drop a finding (prompt tab)                                                |
@@ -116,6 +117,10 @@ Put `{review_format}` in a prompt, and the agent ends its answer with its findin
 - **Lines outside the diff.** GitHub rejects the whole review if one inline comment points outside the diff. The app then posts again with every finding in the body, and says so.
 - **Stale runs.** Comments go on the commit the agent read, so their lines stay right after new pushes.
 - **Once.** A run's review is posted once. Re-run the prompt for a new one.
+
+#### Fixing findings
+
+With a `[fix]` section in the config, `fix` (or `f`) hands the picked findings to that agent in the PR's worktree, before or after posting them. It runs in a `fix` tab like a prompt: live progress, `c` to continue in a terminal. Each fix replaces the previous one; pick findings and press `f` again to re-run it.
 
 Agents act with your permissions and read PR text written by other people. Allow each prompt only what it needs: `--allowedTools` in `args` for Claude, and `deny` rules for opencode in its own config.
 
@@ -197,6 +202,17 @@ name = "diagram"
 harness = "claude"
 prompt = "Draw what PR {url} changes as {out}/diagram.html and mention that path."
 args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)", "Bash(gh pr view *)"]
+```
+
+### Fix
+
+`[fix]` takes the same `harness`, `prompt` and `args` as a prompt. In `prompt`, `{findings}` is the picked findings (title, severity, `path:line` and body), and the placeholders above work too.
+
+```toml
+[fix]
+harness = "claude"
+prompt = "Fix these review findings on {branch}, one commit per fix. Don't push.\n\n{findings}"
+args = ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *)"]
 ```
 
 ### Jira
