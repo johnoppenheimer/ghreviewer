@@ -28,6 +28,7 @@ import {
   step,
 } from "./model";
 import { Approve, type Command, ErrorDetail, Help, Palette, Settings } from "./Overlays";
+import { IconLabel } from "./icons";
 import { PrView } from "./PrView";
 import { BotView, PixelSpinner, RunView, TabLabel, isStale } from "./RunView";
 
@@ -482,13 +483,13 @@ export default function App() {
   );
   const tabs = tabNames.map((name) =>
     name === JIRA_TAB ? (
-      "Jira"
+      <IconLabel icon="jira" label="Jira" />
     ) : bots.some((b) => `<${b.bot}>` === name) ? (
-      name.slice(1, -1)
+      <IconLabel icon={name.slice(1, -1)} label={name.slice(1, -1)} />
     ) : name ? (
       <TabLabel name={name} run={runOf(name)} stale={isStale(runOf(name), pr?.headRefOid)} />
     ) : (
-      "PR"
+      <IconLabel icon="pr" label="PR" />
     ),
   );
   const jiraBody = onJira && (
@@ -755,6 +756,7 @@ export default function App() {
         headState={headState}
         approve={approveBtn}
         tabs={tabs}
+        firstPromptTab={tabNames.length - prompts.length}
         tab={tab}
         tabBody={tabBody}
         onTab={switchTab}
