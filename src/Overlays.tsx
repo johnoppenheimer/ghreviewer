@@ -183,6 +183,7 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
   const [theme, setTheme] = useState(config.theme);
   const [rules, setRules] = useState<Rule[]>(config.rules);
   const [authors, setAuthors] = useState(config.filters.exclude_authors.join("\n"));
+  const [included, setIncluded] = useState(config.filters.include_repos.join("\n"));
   const [repos, setRepos] = useState(config.filters.exclude_repos.join("\n"));
   const [hideDrafts, setHideDrafts] = useState(config.filters.hide_drafts);
   const [jira, setJira] = useState({ ...config.jira, token: "" });
@@ -209,6 +210,7 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
         rules: cleaned,
         filters: {
           exclude_authors: lines(authors),
+          include_repos: lines(included),
           exclude_repos: lines(repos),
           hide_drafts: hideDrafts,
         },
@@ -262,6 +264,13 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
             value={authors}
             onChange={(e) => setAuthors(e.target.value)}
             placeholder="*[bot]"
+          />
+
+          <span className="dim">only repos</span>
+          <textarea
+            value={included}
+            onChange={(e) => setIncluded(e.target.value)}
+            placeholder="all repos, or e.g. acme/*"
           />
 
           <span className="dim">exclude repos</span>

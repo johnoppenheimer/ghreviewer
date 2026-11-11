@@ -32,8 +32,10 @@ name = "mine"
 query = "is:open author:@me"
 
 # Local filters applied on top of the rules. `*` is a wildcard.
+# `include_repos`, if set, keeps only matching repos (e.g. ["acme/*"]); `exclude_repos` then drops some.
 [filters]
 exclude_authors = ["*[bot]"]
+include_repos = []
 exclude_repos = []
 hide_drafts = false
 
@@ -217,6 +219,7 @@ pub struct Rule {
 #[serde(default)]
 pub struct Filters {
     pub exclude_authors: Vec<String>,
+    pub include_repos: Vec<String>,
     pub exclude_repos: Vec<String>,
     pub hide_drafts: bool,
 }
@@ -307,6 +310,7 @@ pub fn apply_settings(text: &str, s: &Settings) -> Result<String> {
 
     let f = &mut doc["filters"];
     f["exclude_authors"] = value(strings(&s.filters.exclude_authors));
+    f["include_repos"] = value(strings(&s.filters.include_repos));
     f["exclude_repos"] = value(strings(&s.filters.exclude_repos));
     f["hide_drafts"] = value(s.filters.hide_drafts);
 
@@ -426,6 +430,7 @@ mod tests {
             }],
             filters: Filters {
                 exclude_authors: vec![],
+                include_repos: vec!["a/*".into()],
                 exclude_repos: vec!["a/b".into()],
                 hide_drafts: true,
             },

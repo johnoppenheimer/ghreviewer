@@ -56,7 +56,12 @@ export type Status = {
 };
 
 export type Rule = { name: string; query: string };
-export type Filters = { exclude_authors: string[]; exclude_repos: string[]; hide_drafts: boolean };
+export type Filters = {
+  exclude_authors: string[];
+  include_repos: string[];
+  exclude_repos: string[];
+  hide_drafts: boolean;
+};
 export type Config = {
   poll_interval_secs: number;
   theme: string;

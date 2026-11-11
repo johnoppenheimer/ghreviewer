@@ -262,6 +262,7 @@ fn is_unread(last_others: Option<&str>, seen: Option<&str>, forced: bool) -> boo
 fn passes(f: &Filters, pr: &PrSummary) -> bool {
     !(f.hide_drafts && pr.is_draft)
         && !f.exclude_authors.iter().any(|p| glob(p, &pr.author))
+        && (f.include_repos.is_empty() || f.include_repos.iter().any(|p| glob(p, &pr.repo)))
         && !f.exclude_repos.iter().any(|p| glob(p, &pr.repo))
 }
 
@@ -363,6 +364,7 @@ mod tests {
         .unwrap();
         let filters = Filters {
             exclude_authors: vec!["*[bot]".into()],
+            include_repos: vec![],
             exclude_repos: vec![],
             hide_drafts: false,
         };
@@ -394,6 +396,13 @@ mod tests {
         db.replace_prs(&[pr("a", "bob", "o/r", false, Some(t2), t2)])
             .unwrap();
         assert!(db.inbox(&filters).unwrap()[0].unread);
+
+        let only = |p: &str| Filters {
+            include_repos: vec![p.into()],
+            ..filters.clone()
+        };
+        assert!(ids(db.inbox(&only("other/*")).unwrap()).is_empty());
+        assert_eq!(ids(db.inbox(&only("O/*")).unwrap()).len(), 1);
 
         let drafts = Filters {
             hide_drafts: true,

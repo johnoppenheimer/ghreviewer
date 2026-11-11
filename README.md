@@ -145,6 +145,7 @@ query = "is:open author:@me"
 # Applied locally on top of the rules. `*` is a wildcard.
 [filters]
 exclude_authors = ["*[bot]"]
+include_repos = ["acme/*"] # if set, only these repos
 exclude_repos = ["acme/legacy-*"]
 hide_drafts = false
 
