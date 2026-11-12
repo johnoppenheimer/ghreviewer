@@ -1,6 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { type ReactNode, type RefObject, Suspense, lazy, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  Suspense,
+  createContext,
+  lazy,
+  useContext,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from "react";
 import {
   api,
   type Check,
@@ -10,7 +20,7 @@ import {
   type TimelineItem,
   list,
 } from "./api";
-import { REVIEW_LABEL, checkGlyph, ghImageSrc, relTime, tailPatch } from "./model";
+import { REVIEW_LABEL, checkGlyph, ghImageSrc, recent, relTime, tailPatch } from "./model";
 
 // Global hook, so it also covers the run markdown: off-screen images aren't fetched or decoded,
 // and repo images load with the token (the webview has no GitHub session for private repos).
@@ -21,8 +31,19 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (src) node.setAttribute("src", src);
 });
 
+// Sanitizing is most of a PR's render time, so going back to a recent PR skips it.
+const RECENT_PRS = 20;
+const cleanByPr = new Map<string, Map<string, string>>();
+const CleanCache = createContext(new Map<string, string>());
+
 function Html({ html }: { html: string | undefined }) {
-  const clean = useMemo(() => DOMPurify.sanitize(html ?? ""), [html]);
+  const cache = useContext(CleanCache);
+  const clean = useMemo(() => {
+    const raw = html ?? "";
+    let out = cache.get(raw);
+    if (out === undefined) cache.set(raw, (out = DOMPurify.sanitize(raw)));
+    return out;
+  }, [html, cache]);
   return <div className="md" dangerouslySetInnerHTML={{ __html: clean }} />;
 }
 
@@ -334,6 +355,16 @@ export function PrView(props: {
 }) {
   const { summary, detail, error, focused, now, paneRef, headRight, headState, approve } = props;
   const { tabs, firstPromptTab, tab, tabBody, onTab, onFocus, onLink } = props;
+  // A PR renders in the background, so holding j/k drops the PRs it passes and only shows titles.
+  const shown = useDeferredValue(detail);
+  const body =
+    detail &&
+    (tabBody ??
+      (shown?.id === detail.id && (
+        <CleanCache value={recent(cleanByPr, shown.id, RECENT_PRS, () => new Map())}>
+          <Detail key={shown.id} pr={shown} now={now} approve={approve} />
+        </CleanCache>
+      )));
   return (
     <div className={`col ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
       <div className={`col-head ${headState}`} data-tauri-drag-region>
@@ -366,7 +397,7 @@ export function PrView(props: {
       >
         {error && <div className="empty error">{error}</div>}
         {!summary && <div className="empty">No PR selected.</div>}
-        {summary && !detail && (
+        {summary && !body && (
           <div className="pr-pane">
             <h1 className="pr-title">
               {summary.title} <span className="dim">#{summary.number}</span>
@@ -374,7 +405,7 @@ export function PrView(props: {
             <span className="dim">{summary.author}</span>
           </div>
         )}
-        {detail && (tabBody ?? <Detail key={detail.id} pr={detail} now={now} approve={approve} />)}
+        {body}
       </div>
     </div>
   );

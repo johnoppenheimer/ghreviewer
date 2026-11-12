@@ -266,6 +266,18 @@ export function ghImageSrc(src: string): string | undefined {
   return m ? `ghimg://localhost/${m[1]}/${m[2]}` : undefined;
 }
 
+/** `cache[key]`, made if missing; the cache keeps the `max` most recently used keys. */
+export function recent<K, V>(cache: Map<K, V>, key: K, max: number, make: () => V): V {
+  const v = cache.get(key) ?? make();
+  cache.delete(key);
+  cache.set(key, v);
+  for (const k of cache.keys()) {
+    if (cache.size <= max) break;
+    cache.delete(k);
+  }
+  return v;
+}
+
 /** Review bots by GitHub login, and the name of their tab. */
 const BOTS: Record<string, string> = { "greptile-apps": "greptile", coderabbitai: "coderabbit" };
 

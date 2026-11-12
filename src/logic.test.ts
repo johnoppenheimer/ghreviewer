@@ -8,6 +8,7 @@ import {
   inScope,
   jiraClass,
   pickedByDefault,
+  recent,
   relTime,
   shouldMarkRead,
   sidebarItems,
@@ -275,4 +276,13 @@ test("tailPatch keeps the end of a hunk with its line numbers", () => {
   expect(tailPatch("x.rs", hunk, 8)).toBe(
     "--- a/x.rs\n+++ b/x.rs\n@@ -10,3 +10,4 @@ fn main() {\n a\n-b\n+c\n+d\n e\n",
   );
+});
+
+test("recent keeps the most recently used keys", () => {
+  const cache = new Map<string, number>();
+  for (const k of ["a", "b", "c"]) recent(cache, k, 2, () => k.length);
+  expect([...cache.keys()]).toEqual(["b", "c"]);
+  expect(recent(cache, "b", 2, () => 9)).toBe(1); // a hit isn't remade, and becomes the newest
+  recent(cache, "d", 2, () => 1);
+  expect([...cache.keys()]).toEqual(["b", "d"]);
 });
