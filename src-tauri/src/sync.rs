@@ -56,7 +56,7 @@ pub struct PrSummary {
 pub enum Next {
     /// Reviewed by you, then your review was requested again.
     Back,
-    /// Yours, reviewed by someone after your last commit.
+    /// Yours, reviewed by someone (not a bot) after your last commit.
     Feedback,
     /// Reviewed by you, with commits since.
     Updated,
@@ -66,7 +66,7 @@ pub enum Next {
     New,
     /// Yours, approved: merge it.
     Ready,
-    /// On the others.
+    /// On the others, including their drafts.
     Waiting,
     /// Approved by you, nothing new since.
     Done,
@@ -153,7 +153,7 @@ fragment PrFields on PullRequest {{
   repository {{ nameWithOwner defaultBranchRef {{ name }} }}
   commits(last: 1) {{ nodes {{ commit {{ committedDate statusCheckRollup {{ state }} }} }} }}
   reviewRequests(first: 20) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
-  latestReviews(first: 20) {{ nodes {{ author {{ login }} state submittedAt }} }}
+  latestReviews(first: 20) {{ nodes {{ author {{ __typename login }} state submittedAt }} }}
   timelineItems(last: 10, itemTypes: [{ACTIVITY_TYPES}]) {{
     nodes {{
       ... on IssueComment {{ createdAt author {{ login }} }}
@@ -238,9 +238,17 @@ struct MaybeLogin {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LatestReview {
-    author: Option<Login>,
+    author: Option<Reviewer>,
     state: String,
     submitted_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Reviewer {
+    login: String,
+    /// `Bot` for GitHub Apps such as review bots, whose logins have no `[bot]` suffix here.
+    #[serde(rename = "__typename", default)]
+    kind: String,
 }
 
 #[derive(Deserialize)]
@@ -345,8 +353,10 @@ fn next_step(pr: &SearchPr, viewer: &str) -> Next {
         all.filter(|r| r.state != "PENDING")
     };
     if pr.author.as_ref().is_some_and(|a| a.login == viewer) {
+        let bot = |r: &LatestReview| r.author.as_ref().is_some_and(|a| a.kind == "Bot");
         let feedback = reviews().any(|r| {
             !mine(r)
+                && !bot(r)
                 && matches!(r.state.as_str(), "CHANGES_REQUESTED" | "COMMENTED")
                 && r.submitted_at.as_deref() > head_at
         });
@@ -360,6 +370,9 @@ fn next_step(pr: &SearchPr, viewer: &str) -> Next {
         } else {
             Next::Waiting
         };
+    }
+    if pr.is_draft {
+        return Next::Waiting;
     }
     let requested = pr.review_requests.nodes.iter().flatten().any(|r| {
         let who = r
@@ -817,6 +830,7 @@ mod tests {
             { "requestedReviewer": { "login": "me" } },
         ] });
         assert_eq!(next("bob", back), Next::Back);
+        assert_eq!(next("bob", json!({ "isDraft": true })), Next::Waiting);
         // Yours.
         assert_eq!(next("me", json!({})), Next::Waiting);
         assert_eq!(
@@ -831,6 +845,9 @@ mod tests {
             next("me", reviews(vec![review("me", "COMMENTED", 3)])),
             Next::Waiting
         );
+        let mut bot = review("greptile-apps", "COMMENTED", 3);
+        bot["author"]["__typename"] = json!("Bot");
+        assert_eq!(next("me", reviews(vec![bot])), Next::Waiting);
         let failing = json!({ "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] } });
         assert_eq!(next("me", failing), Next::Failing);
         assert_eq!(

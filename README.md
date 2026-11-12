@@ -60,8 +60,8 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
 - **Syncing.** The inbox syncs every `poll_interval_secs` (and on `Cmd-R`). The repo list syncs hourly. Details of new unread PRs are fetched ahead of time, so opening them is instant.
 - **Unread.** Opening a PR marks it read. `u` toggles it.
 - **Smart inbox** (`smart_inbox = true`, or in `:settings`). The inbox is ranked by what needs you instead of by date, and every row shows its state:
-  - **Others' PRs.** `back`: you reviewed it and were asked again. `updated`: commits landed since your review. `new`: you haven't reviewed it yet.
-  - **Your PRs.** `feedback`: someone reviewed it after your last commit. `failing`: checks fail. `ready`: approved, so you can merge it.
+  - **Others' PRs.** `back`: you reviewed it and were asked again. `updated`: commits landed since your review. `new`: you haven't reviewed it yet. Drafts are `waiting`.
+  - **Your PRs.** `feedback`: someone (not a review bot) reviewed it after your last commit. `failing`: checks fail. `ready`: approved, so you can merge it.
   - **Can wait.** Stacks where every PR is `waiting` (on others) or `done` (you approved it and nothing changed since) go under a dimmed "can wait" line. A stack ranks by its most urgent PR.
   - A plain `review-requested:@me` rule drops a PR once you've reviewed it. To see `updated` PRs, add a rule like `is:open reviewed-by:@me`.
 - **Approving.** On the PR tab, `a` (or `approve` after the reviewers, or `approve PR` in the `:` palette) asks for an optional message, then `⌘↵` approves the PR on GitHub. It's offered on other people's open PRs until you've approved their latest commit.
