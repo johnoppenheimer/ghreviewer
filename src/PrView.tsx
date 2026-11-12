@@ -1,7 +1,6 @@
-import { PatchDiff } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { type ReactNode, type RefObject, useMemo } from "react";
+import { type ReactNode, type RefObject, Suspense, lazy, useMemo } from "react";
 import {
   api,
   type Check,
@@ -165,22 +164,27 @@ function Entry({ it, now }: { it: TimelineItem; now: number }) {
   );
 }
 
+// Diff renderer + Shiki core is most of the bundle; load it on the first inline comment.
+const PatchDiff = lazy(() => import("@pierre/diffs/react").then((m) => ({ default: m.PatchDiff })));
+
 function Hunk({ path, text }: { path: string; text: string }) {
   const theme = useQuery({ queryKey: ["config"], queryFn: api.config }).data?.theme;
   const patch = useMemo(() => tailPatch(path, text, 8), [path, text]);
   return (
-    <PatchDiff
-      className="hunk"
-      patch={patch}
-      options={{
-        diffStyle: "unified",
-        disableFileHeader: true,
-        hunkSeparators: "simple",
-        // shortcut: custom theme names get dark syntax colors; add a theme key if one needs light.
-        themeType: theme === "light" ? "light" : "dark",
-        unsafeCSS: "* { border-radius: 0 !important; }",
-      }}
-    />
+    <Suspense fallback={null}>
+      <PatchDiff
+        className="hunk"
+        patch={patch}
+        options={{
+          diffStyle: "unified",
+          disableFileHeader: true,
+          hunkSeparators: "simple",
+          // shortcut: custom theme names get dark syntax colors; add a theme key if one needs light.
+          themeType: theme === "light" ? "light" : "dark",
+          unsafeCSS: "* { border-radius: 0 !important; }",
+        }}
+      />
+    </Suspense>
   );
 }
 

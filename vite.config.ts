@@ -7,4 +7,6 @@ export default defineConfig({
   clearScreen: false,
   // Tauri's devUrl expects this exact port.
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
+  // Loaded from disk, not the network; the biggest chunks are Shiki grammars, already lazy.
+  build: { chunkSizeWarningLimit: 1000 },
 });
