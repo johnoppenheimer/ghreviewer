@@ -25,7 +25,19 @@ export type PrSummary = {
   context: boolean;
   /** Tickets named in the title and found in Jira. */
   jira: TicketRef[];
+  /** Who the PR waits on, for the smart inbox (`Next` in src-tauri/src/sync.rs). */
+  next: Next | null;
 };
+
+export type Next =
+  | "back"
+  | "feedback"
+  | "updated"
+  | "failing"
+  | "new"
+  | "ready"
+  | "waiting"
+  | "done";
 
 /** `category` is Jira's status category: `new`, `indeterminate` (in progress) or `done`. */
 export type TicketRef = { key: string; category: string };
@@ -65,6 +77,8 @@ export type Filters = {
 export type Config = {
   poll_interval_secs: number;
   theme: string;
+  /** Adds the "Next" view above All. */
+  smart_inbox: boolean;
   clone_roots: string[];
   open_with: { name: string; command: string[] }[];
   prompts: Prompt[];
@@ -122,7 +136,10 @@ export type Finding = {
 };
 /** Local clone + worktree on the PR branch; `wt` is whether worktrunk is installed. */
 export type Worktree = { clone: string | null; path: string | null; wt: boolean };
-export type Settings = Pick<Config, "poll_interval_secs" | "theme" | "rules" | "filters" | "jira">;
+export type Settings = Pick<
+  Config,
+  "poll_interval_secs" | "theme" | "smart_inbox" | "rules" | "filters" | "jira"
+>;
 
 // PR detail, in the shape of the GraphQL query in src-tauri/src/sync.rs.
 type Login = { login: string } | null;

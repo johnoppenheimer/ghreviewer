@@ -1,10 +1,12 @@
 import { type CSSProperties, useEffect, useRef } from "react";
-import type { Run } from "./api";
+import type { PrSummary, Run } from "./api";
 import {
   type Graph,
+  NEXT_CLASS,
   type PrRow,
   REVIEW_LABEL,
   type SideItem,
+  canWait,
   checkGlyph,
   jiraClass,
   relTime,
@@ -102,7 +104,7 @@ export function Sidebar(
           const sel = it.key === selected;
           if (it.kind === "run") return null;
           let cls = "side-all";
-          let label = "All";
+          let label = it.kind === "next" ? "Next" : "All";
           if (it.kind === "org") {
             cls = "side-org";
             label = `${it.collapsed ? "▸" : "▾"} ${it.org}`;
@@ -162,6 +164,10 @@ export function Inbox(
   props: FilterProps & {
     title: string;
     rows: PrRow[];
+    /** Show each PR's smart inbox state. */
+    smart: boolean;
+    /** The Next view: PRs that can wait are dimmed and not counted. */
+    nextView: boolean;
     selected: string | null;
     focused: boolean;
     empty: string;
@@ -172,13 +178,15 @@ export function Inbox(
     onSelect: (id: string) => void;
   },
 ) {
-  const { title, rows, selected, focused, empty, now, rules, rule, onRule, onSelect } = props;
+  const { title, rows, smart, nextView, selected, focused, empty, now, rules, rule } = props;
+  const { onRule, onSelect } = props;
   const scrollRef = useScrollToSelected(selected);
+  const later = (pr: PrSummary) => nextView && canWait(pr);
   return (
     <div className={`col ${focused ? "focused" : ""}`}>
       <div className="col-head" data-tauri-drag-region>
         <span className="grow">{title}</span>
-        <span>{rows.filter((r) => !r.dim).length}</span>
+        <span>{rows.filter((r) => !r.dim && !later(r.pr)).length}</span>
       </div>
       {rules.length > 1 && (
         <div className="tabs" title="t: next rule">
@@ -204,7 +212,7 @@ export function Inbox(
           return (
             <div
               key={pr.id}
-              className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""}`}
+              className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""} ${later(pr) ? "can-wait" : ""}`}
               style={{ "--depth": graph?.depth ?? 0 } as CSSProperties}
               title={dim ? "Stack parent, not in your inbox" : undefined}
               onClick={() => onSelect(pr.id)}
@@ -242,6 +250,9 @@ export function Inbox(
                     </span>
                   ))}
                   {pr.isDraft && <span className="dim"> draft</span>}
+                  {smart && pr.next && !dim && (
+                    <span className={NEXT_CLASS[pr.next]}> {pr.next}</span>
+                  )}
                 </span>
                 {review && <span className={review[1]}>{review[0]}</span>}
                 {glyph && <span className={glyphCls}>{glyph}</span>}

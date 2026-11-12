@@ -1,7 +1,8 @@
-import type { Finding, PrDetail, PrSummary, Run, TicketRef } from "./api";
+import type { Finding, Next, PrDetail, PrSummary, Run, TicketRef } from "./api";
 
 export type SideItem =
   | { key: string; kind: "run"; run: Run }
+  | { key: "next"; kind: "next"; total: number; unread: number }
   | { key: "all"; kind: "all"; total: number; unread: number }
   | { key: string; kind: "org"; org: string; total: number; unread: number; collapsed: boolean }
   | {
@@ -26,7 +27,43 @@ function count(map: Map<string, Counts>, key: string, pr: PrSummary) {
 
 const orgOf = (repo: string) => repo.split("/")[0];
 
-/** Flat sidebar: All, then orgs (with PRs first) and their repos (pinned, then with PRs, then the rest). */
+/** Smart inbox ranks, most urgent first. */
+const NEXT_ORDER: Next[] = [
+  "back",
+  "feedback",
+  "updated",
+  "failing",
+  "new",
+  "ready",
+  "waiting",
+  "done",
+];
+
+/** Color class of each smart inbox state. */
+export const NEXT_CLASS: Record<Next, string> = {
+  back: "accent",
+  feedback: "warn",
+  updated: "accent",
+  failing: "fail",
+  new: "",
+  ready: "ok",
+  waiting: "dim",
+  done: "dim",
+};
+
+/** Nothing to do on it for now: dimmed in the Next view, not counted. */
+export const canWait = (pr: PrSummary) => pr.next === "waiting" || pr.next === "done";
+
+/** Most urgent first, newest first within a rank (the sort is stable). */
+export function byNext(prs: PrSummary[]): PrSummary[] {
+  const rank = (p: PrSummary) => (p.next ? NEXT_ORDER.indexOf(p.next) : NEXT_ORDER.length);
+  return [...prs].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Flat sidebar: Next (if `smart`), All, then orgs (with PRs first) and their repos (pinned, then
+ * with PRs, then the rest).
+ */
 export function sidebarItems(opts: {
   repos: string[];
   inbox: PrSummary[];
@@ -37,6 +74,7 @@ export function sidebarItems(opts: {
   /** Hide repos with no PRs in the inbox (pinned repos stay). */
   onlyWithPrs?: boolean;
   filter: string;
+  smart?: boolean;
 }): SideItem[] {
   const { inbox, collapsed, showHidden, onlyWithPrs } = opts;
   const filter = opts.filter.toLowerCase();
@@ -62,7 +100,18 @@ export function sidebarItems(opts: {
     Number(hasB) - Number(has) || a.localeCompare(b, undefined, { sensitivity: "base" });
   const orgNames = [...orgs.keys()].sort((a, b) => rank(byOrg.has(a), a, byOrg.has(b), b));
 
+  const todo = inbox.filter((p) => !canWait(p));
   const items: SideItem[] = [
+    ...(opts.smart
+      ? [
+          {
+            key: "next" as const,
+            kind: "next" as const,
+            total: todo.length,
+            unread: todo.filter((p) => p.unread).length,
+          },
+        ]
+      : []),
     { key: "all", kind: "all", total: inbox.length, unread: inbox.filter((p) => p.unread).length },
   ];
   for (const org of orgNames) {

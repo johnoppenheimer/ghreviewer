@@ -11,6 +11,11 @@ pub const STARTER: &str = r##"# ghreviewer config. Edit by hand or from the app 
 poll_interval_secs = 300
 theme = "dark"
 
+# A "Next" view above All: PRs ranked by who they wait on (you re-requested, feedback on yours,
+# commits since your review, failing, new, ready to merge), the rest dimmed. To see PRs you
+# already reviewed, add a rule that keeps them, e.g. "is:open reviewed-by:@me".
+smart_inbox = false
+
 # Local clones: direct children of these folders are matched to GitHub repos by their
 # `origin` remote. Used to show a PR's worktree and create one with worktrunk (`w`).
 clone_roots = ["~/Documents/dev"]
@@ -128,6 +133,7 @@ font_size = "12px"
 pub struct Config {
     pub poll_interval_secs: u64,
     pub theme: String,
+    pub smart_inbox: bool,
     pub clone_roots: Vec<String>,
     pub rules: Vec<Rule>,
     pub filters: Filters,
@@ -203,6 +209,7 @@ impl Default for Config {
         Self {
             poll_interval_secs: 300,
             theme: "dark".into(),
+            smart_inbox: false,
             clone_roots: vec!["~/Documents/dev".into()],
             open_with: vec![Opener {
                 name: "Cursor".into(),
@@ -260,6 +267,8 @@ pub struct RepoFlags {
 pub struct Settings {
     pub poll_interval_secs: u64,
     pub theme: String,
+    #[serde(default)]
+    pub smart_inbox: bool,
     pub rules: Vec<Rule>,
     pub filters: Filters,
     #[serde(default)]
@@ -314,6 +323,7 @@ pub fn apply_settings(text: &str, s: &Settings) -> Result<String> {
     let mut doc: DocumentMut = text.parse()?;
     doc["poll_interval_secs"] = value(s.poll_interval_secs as i64);
     doc["theme"] = value(&s.theme);
+    doc["smart_inbox"] = value(s.smart_inbox);
 
     let rules = doc
         .entry("rules")
@@ -389,6 +399,7 @@ mod tests {
     fn starter_parses() {
         let c: Config = toml::from_str(STARTER).unwrap();
         assert_eq!(c.rules.len(), 2);
+        assert!(!c.smart_inbox);
         assert_eq!(c.filters.exclude_authors, vec!["*[bot]"]);
         assert!(c.themes.contains_key("dark") && c.themes.contains_key("light"));
         assert_eq!(c.open_with, Config::default().open_with);
@@ -450,6 +461,7 @@ mod tests {
         let s = Settings {
             poll_interval_secs: 60,
             theme: "light".into(),
+            smart_inbox: true,
             rules: vec![Rule {
                 name: "team".into(),
                 query: "is:open team-review-requested:acme/x".into(),
@@ -467,6 +479,7 @@ mod tests {
         assert!(out.contains("[themes.dark]"));
         let c: Config = toml::from_str(&out).unwrap();
         assert_eq!(c.poll_interval_secs, 60);
+        assert!(c.smart_inbox);
         assert_eq!(c.rules, s.rules);
         assert_eq!(c.filters, s.filters);
         assert!(!out.contains("\n[jira]"));
@@ -497,6 +510,7 @@ mod tests {
         let s = Settings {
             poll_interval_secs: 120,
             theme: "dark".into(),
+            smart_inbox: false,
             rules: vec![
                 Rule {
                     name: "a".into(),

@@ -59,6 +59,11 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
 
 - **Syncing.** The inbox syncs every `poll_interval_secs` (and on `Cmd-R`). The repo list syncs hourly. Details of new unread PRs are fetched ahead of time, so opening them is instant.
 - **Unread.** Opening a PR marks it read. `u` toggles it.
+- **Smart inbox** (`smart_inbox = true`, or in `:settings`). A `Next` view above All ranks PRs by who they wait on, and every row shows that state:
+  - **Others' PRs.** `back`: you reviewed it and were asked again. `updated`: commits landed since your review. `new`: you haven't reviewed it yet.
+  - **Your PRs.** `feedback`: someone reviewed it after your last commit. `failing`: checks fail. `ready`: approved, so you can merge it.
+  - **Dimmed.** `waiting` (on others) and `done` (you approved it and nothing changed since) are dimmed and not counted.
+  - A plain `review-requested:@me` rule drops a PR once you've reviewed it. To see `updated` PRs, add a rule like `is:open reviewed-by:@me`.
 - **Approving.** On the PR tab, `a` (or `approve` after the reviewers, or `approve PR` in the `:` palette) asks for an optional message, then `⌘↵` approves the PR on GitHub. It's offered on other people's open PRs until you've approved their latest commit.
 - **Wide windows.** In a window wider than a full-size 14" MacBook Pro screen, the PR tab splits: description on the left, conversation on the right.
 
@@ -135,6 +140,7 @@ Everything lives in `~/.config/ghreviewer/config.toml`. The app reloads it as so
 ```toml
 poll_interval_secs = 300 # minimum 30
 theme = "dark" # a name under [themes]
+smart_inbox = false # the "Next" view
 clone_roots = ["~/Documents/dev"] # folders holding your clones
 ```
 

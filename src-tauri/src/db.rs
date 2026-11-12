@@ -323,6 +323,7 @@ mod tests {
             head_ref: Some(id.into()),
             context: false,
             jira: vec![],
+            next: None,
         }
     }
 

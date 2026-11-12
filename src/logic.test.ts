@@ -3,7 +3,9 @@ import type { PrDetail, PrSummary } from "./api";
 import { createKeymap } from "./keys";
 import {
   botReviews,
+  byNext,
   canApprove,
+  canWait,
   ghImageSrc,
   inScope,
   jiraClass,
@@ -83,6 +85,39 @@ const pr = (repo: string, unread = false): PrSummary => ({
   headRef: null,
   context: false,
   jira: [],
+  next: null,
+});
+
+test("Next view ranks by state, counts only what needs you", () => {
+  const at = (repo: string, next: PrSummary["next"], unread = false) => ({
+    ...pr(repo, unread),
+    next,
+  });
+  const inbox = [
+    at("a/1", "waiting", true),
+    at("a/2", "new", true),
+    at("a/3", "back"),
+    at("a/4", null),
+    at("a/5", "new"),
+    at("a/6", "done"),
+  ];
+  expect(byNext(inbox).map((p) => p.repo)).toEqual(["a/3", "a/2", "a/5", "a/1", "a/6", "a/4"]);
+  const opts = {
+    repos: [],
+    inbox,
+    pinned: [],
+    hidden: [],
+    collapsed: new Set<string>(),
+    showHidden: false,
+    filter: "",
+  };
+  expect(sidebarItems(opts)[0].key).toBe("all");
+  expect(sidebarItems({ ...opts, smart: true })[0]).toMatchObject({
+    key: "next",
+    total: 4,
+    unread: 1,
+  });
+  expect(canWait(inbox[0]) && canWait(inbox[5]) && !canWait(inbox[3])).toBe(true);
 });
 
 test("sidebar orders orgs and repos, counts, hides, filters", () => {

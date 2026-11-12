@@ -181,6 +181,7 @@ const lines = (text: string) =>
 export function Settings({ config, onClose }: { config: Config; onClose: () => void }) {
   const [poll, setPoll] = useState(String(config.poll_interval_secs));
   const [theme, setTheme] = useState(config.theme);
+  const [smart, setSmart] = useState(config.smart_inbox);
   const [rules, setRules] = useState<Rule[]>(config.rules);
   const [authors, setAuthors] = useState(config.filters.exclude_authors.join("\n"));
   const [included, setIncluded] = useState(config.filters.include_repos.join("\n"));
@@ -207,6 +208,7 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
       await api.saveSettings({
         poll_interval_secs: seconds,
         theme,
+        smart_inbox: smart,
         rules: cleaned,
         filters: {
           exclude_authors: lines(authors),
@@ -286,6 +288,15 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
             style={{ justifySelf: "start" }}
             checked={hideDrafts}
             onChange={(e) => setHideDrafts(e.target.checked)}
+          />
+
+          <span className="dim">smart inbox</span>
+          <input
+            type="checkbox"
+            style={{ justifySelf: "start" }}
+            title='A "Next" view above All, ranked by what needs you'
+            checked={smart}
+            onChange={(e) => setSmart(e.target.checked)}
           />
 
           <span className="dim">poll (secs)</span>

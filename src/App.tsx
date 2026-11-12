@@ -16,6 +16,7 @@ import { type Action, createKeymap } from "./keys";
 import { Inbox, Sidebar } from "./Lists";
 import {
   botReviews,
+  byNext,
   canApprove,
   inScope,
   matchesFilter,
@@ -253,6 +254,7 @@ export default function App() {
         showHidden,
         onlyWithPrs,
         filter: filters[0],
+        smart: config?.smart_inbox,
       }),
       ...runItems(activeRuns),
     ],
@@ -266,7 +268,7 @@ export default function App() {
   const rows = useMemo(
     () =>
       stackRows(
-        inbox,
+        side.key === "next" ? byNext(inbox) : inbox,
         (pr) => inRule(pr) && inScope(pr, side.key) && matchesFilter(pr, filters[1]),
       ),
     [inbox, side.key, filters, rule],
@@ -697,7 +699,8 @@ export default function App() {
     { label: "help", run: () => setOverlay("help") },
   ];
 
-  const scopeTitle = side.kind === "org" ? side.org : side.kind === "repo" ? side.repo : "Inbox";
+  let scopeTitle = side.kind === "org" ? side.org : side.kind === "repo" ? side.repo : "Inbox";
+  if (side.kind === "next") scopeTitle = "Next";
   let empty = "Nothing here.";
   if (status?.error && !mine.length) empty = status.error;
   else if (!config?.rules.length) empty = "No rules yet. Press : then settings.";
@@ -729,6 +732,8 @@ export default function App() {
       <Inbox
         title={scopeTitle}
         rows={rows}
+        smart={!!config?.smart_inbox}
+        nextView={side.kind === "next"}
         selected={selected?.id ?? null}
         focused={focus === 1}
         empty={empty}

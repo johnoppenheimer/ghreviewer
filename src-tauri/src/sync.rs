@@ -45,6 +45,31 @@ pub struct PrSummary {
     /// Tickets named in the title and found in Jira. Filled when the inbox is read.
     #[serde(default)]
     pub jira: Vec<crate::jira::TicketRef>,
+    /// Who the PR waits on, for the smart inbox.
+    #[serde(default)]
+    pub next: Option<Next>,
+}
+
+/// Smart inbox state; `NEXT_ORDER` in src/model.ts ranks them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Next {
+    /// Reviewed by you, then your review was requested again.
+    Back,
+    /// Yours, reviewed by someone after your last commit.
+    Feedback,
+    /// Reviewed by you, with commits since.
+    Updated,
+    /// Yours, checks failing.
+    Failing,
+    /// Not reviewed by you yet.
+    New,
+    /// Yours, approved: merge it.
+    Ready,
+    /// On the others.
+    Waiting,
+    /// Approved by you, nothing new since.
+    Done,
 }
 
 #[derive(Deserialize)]
@@ -126,7 +151,9 @@ fragment PrFields on PullRequest {{
   baseRefName headRefName isCrossRepository
   author {{ login }}
   repository {{ nameWithOwner defaultBranchRef {{ name }} }}
-  commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }}
+  commits(last: 1) {{ nodes {{ commit {{ committedDate statusCheckRollup {{ state }} }} }} }}
+  reviewRequests(first: 20) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
+  latestReviews(first: 20) {{ nodes {{ author {{ login }} state submittedAt }} }}
   timelineItems(last: 10, itemTypes: [{ACTIVITY_TYPES}]) {{
     nodes {{
       ... on IssueComment {{ createdAt author {{ login }} }}
@@ -191,7 +218,29 @@ struct SearchPr {
     author: Option<Login>,
     repository: SearchRepo,
     commits: Nodes<CommitNode>,
+    review_requests: Nodes<ReviewRequest>,
+    latest_reviews: Nodes<LatestReview>,
     timeline_items: Nodes<Activity>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewRequest {
+    /// Teams and bots come back as `{}`.
+    requested_reviewer: Option<MaybeLogin>,
+}
+
+#[derive(Deserialize)]
+struct MaybeLogin {
+    login: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LatestReview {
+    author: Option<Login>,
+    state: String,
+    submitted_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -215,6 +264,7 @@ struct CommitNode {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CommitRollup {
+    committed_date: Option<String>,
     status_check_rollup: Option<Rollup>,
 }
 
@@ -283,8 +333,53 @@ fn last_others_activity(pr: &SearchPr, viewer: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Who the PR waits on, from `viewer`'s side.
+// shortcut: "commits since" compares to the head's committedDate, so pushing commits made before a
+// review is missed; use push events if that matters.
+fn next_step(pr: &SearchPr, viewer: &str) -> Next {
+    let head = pr.commits.nodes.iter().flatten().next().map(|c| &c.commit);
+    let head_at = head.and_then(|c| c.committed_date.as_deref());
+    let mine = |r: &LatestReview| r.author.as_ref().is_some_and(|a| a.login == viewer);
+    let reviews = || {
+        let all = pr.latest_reviews.nodes.iter().flatten();
+        all.filter(|r| r.state != "PENDING")
+    };
+    if pr.author.as_ref().is_some_and(|a| a.login == viewer) {
+        let feedback = reviews().any(|r| {
+            !mine(r)
+                && matches!(r.state.as_str(), "CHANGES_REQUESTED" | "COMMENTED")
+                && r.submitted_at.as_deref() > head_at
+        });
+        let checks = head.and_then(|c| c.status_check_rollup.as_ref());
+        return if feedback {
+            Next::Feedback
+        } else if checks.is_some_and(|r| matches!(r.state.as_str(), "FAILURE" | "ERROR")) {
+            Next::Failing
+        } else if !pr.is_draft && pr.review_decision.as_deref() == Some("APPROVED") {
+            Next::Ready
+        } else {
+            Next::Waiting
+        };
+    }
+    let requested = pr.review_requests.nodes.iter().flatten().any(|r| {
+        let who = r
+            .requested_reviewer
+            .as_ref()
+            .and_then(|w| w.login.as_deref());
+        who == Some(viewer)
+    });
+    match reviews().find(|r| mine(r)) {
+        None => Next::New,
+        Some(_) if requested => Next::Back,
+        Some(r) if head_at > r.submitted_at.as_deref() => Next::Updated,
+        Some(r) if r.state == "APPROVED" => Next::Done,
+        Some(_) => Next::Waiting,
+    }
+}
+
 fn summarize(pr: SearchPr, viewer: &str) -> PrSummary {
     let last_others_activity_at = last_others_activity(&pr, viewer);
+    let next = Some(next_step(&pr, viewer));
     let checks = pr
         .commits
         .nodes
@@ -313,6 +408,7 @@ fn summarize(pr: SearchPr, viewer: &str) -> PrSummary {
         head_ref: (!pr.is_cross_repository).then_some(pr.head_ref_name),
         context: false,
         jira: vec![],
+        next,
     }
 }
 
@@ -662,16 +758,92 @@ mod tests {
         );
     }
 
-    fn pr(author: &str, created: &str, timeline: Value) -> SearchPr {
-        serde_json::from_value(json!({
+    fn pr_json(author: &str, created: &str, timeline: Value) -> Value {
+        json!({
             "id": "PR_1", "number": 1, "title": "t", "url": "u", "isDraft": false, "state": "OPEN",
             "createdAt": created, "updatedAt": created, "reviewDecision": null,
             "baseRefName": "main", "headRefName": "feat", "isCrossRepository": false,
             "author": { "login": author }, "repository": { "nameWithOwner": "o/r" },
-            "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] },
+            "commits": { "nodes": [{ "commit": {
+                "committedDate": "2026-01-02T00:00:00Z", "statusCheckRollup": { "state": "SUCCESS" },
+            } }] },
+            "reviewRequests": { "nodes": [] },
+            "latestReviews": { "nodes": [] },
             "timelineItems": { "nodes": timeline },
-        }))
-        .unwrap()
+        })
+    }
+
+    fn pr(author: &str, created: &str, timeline: Value) -> SearchPr {
+        serde_json::from_value(pr_json(author, created, timeline)).unwrap()
+    }
+
+    #[test]
+    fn next_steps() {
+        // Head commit is on the 2nd; reviews on the 1st are older, on the 3rd newer.
+        let review = |who: &str, state: &str, day: u8| json!({ "author": { "login": who }, "state": state, "submittedAt": format!("2026-01-0{day}T00:00:00Z") });
+        let next = |author: &str, patch: Value| {
+            let mut v = pr_json(author, "2026-01-01T00:00:00Z", json!([]));
+            for (k, val) in patch.as_object().unwrap() {
+                v[k] = val.clone();
+            }
+            next_step(&serde_json::from_value(v).unwrap(), "me")
+        };
+        let reviews = |r: Vec<Value>| json!({ "latestReviews": { "nodes": r } });
+        // Someone else's PR.
+        assert_eq!(next("bob", json!({})), Next::New);
+        assert_eq!(
+            next("bob", reviews(vec![review("me", "PENDING", 3)])),
+            Next::New
+        );
+        assert_eq!(
+            next("bob", reviews(vec![review("me", "CHANGES_REQUESTED", 1)])),
+            Next::Updated
+        );
+        assert_eq!(
+            next("bob", reviews(vec![review("me", "APPROVED", 1)])),
+            Next::Updated
+        );
+        assert_eq!(
+            next("bob", reviews(vec![review("me", "COMMENTED", 3)])),
+            Next::Waiting
+        );
+        assert_eq!(
+            next("bob", reviews(vec![review("me", "APPROVED", 3)])),
+            Next::Done
+        );
+        let mut back = reviews(vec![review("me", "COMMENTED", 3)]);
+        back["reviewRequests"] = json!({ "nodes": [
+            { "requestedReviewer": {} },
+            { "requestedReviewer": { "login": "me" } },
+        ] });
+        assert_eq!(next("bob", back), Next::Back);
+        // Yours.
+        assert_eq!(next("me", json!({})), Next::Waiting);
+        assert_eq!(
+            next("me", reviews(vec![review("bob", "COMMENTED", 3)])),
+            Next::Feedback
+        );
+        assert_eq!(
+            next("me", reviews(vec![review("bob", "CHANGES_REQUESTED", 1)])),
+            Next::Waiting
+        );
+        assert_eq!(
+            next("me", reviews(vec![review("me", "COMMENTED", 3)])),
+            Next::Waiting
+        );
+        let failing = json!({ "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] } });
+        assert_eq!(next("me", failing), Next::Failing);
+        assert_eq!(
+            next("me", json!({ "reviewDecision": "APPROVED" })),
+            Next::Ready
+        );
+        assert_eq!(
+            next(
+                "me",
+                json!({ "reviewDecision": "APPROVED", "isDraft": true })
+            ),
+            Next::Waiting
+        );
     }
 
     #[test]

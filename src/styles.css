@@ -435,6 +435,10 @@ a:hover {
 .pr-row.stack-parent {
   opacity: 0.45;
 }
+/* Next view: waiting on others, or done. */
+.pr-row.can-wait {
+  opacity: 0.6;
+}
 .pr-row .line {
   display: flex;
   gap: 8px;
