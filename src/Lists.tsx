@@ -209,6 +209,8 @@ export function Inbox(
           const sel = pr.id === selected;
           const unread = pr.unread && !dim;
           const later = waitAt >= 0 && i >= waitAt;
+          // Why this stack ranks here, when it's a PR further down it.
+          const lead = leads[i] !== pr ? leads[i] : undefined;
           const [glyph, glyphCls] = checkGlyph(pr.checks);
           const review = pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] : null;
           return (
@@ -226,6 +228,14 @@ export function Inbox(
                   <span className="grow dim">
                     {pr.repo}#{pr.number}
                   </span>
+                  {lead?.next && (
+                    <span
+                      className={NEXT_CLASS[lead.next]}
+                      title={`Ranked here for #${lead.number}, further down this stack`}
+                    >
+                      {lead.next} ↓#{lead.number}
+                    </span>
+                  )}
                   <span className="dim">{relTime(pr.updatedAt, now)}</span>
                 </div>
                 <div className="line">
