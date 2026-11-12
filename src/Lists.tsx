@@ -258,10 +258,8 @@ export function Inbox(
                 </div>
                 <div className="line">
                   <span className="dot" />
-                  {smart && (
-                    <span className={`state ${pr.next ? NEXT_CLASS[pr.next] : ""}`}>
-                      {!dim && pr.next}
-                    </span>
+                  {smart && pr.next && !dim && (
+                    <span className={`state ${NEXT_CLASS[pr.next]}`}>{pr.next}</span>
                   )}
                   <span className="grow">
                     <span className="dim">{pr.author}</span>
