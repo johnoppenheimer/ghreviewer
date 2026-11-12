@@ -254,6 +254,11 @@ export function Inbox(
                 </div>
                 <div className="line">
                   <span className="dot" />
+                  {smart && (
+                    <span className={`state ${pr.next ? NEXT_CLASS[pr.next] : ""}`}>
+                      {!dim && pr.next}
+                    </span>
+                  )}
                   <span className="grow">
                     <span className="dim">{pr.author}</span>
                     {pr.rules.map((r) => (
@@ -263,11 +268,11 @@ export function Inbox(
                       </span>
                     ))}
                     {pr.isDraft && <span className="dim"> draft</span>}
-                    {smart && pr.next && !dim && (
-                      <span className={NEXT_CLASS[pr.next]}> {pr.next}</span>
-                    )}
                   </span>
-                  {review && <span className={review[1]}>{review[0]}</span>}
+                  {/* `ready` already says approved. */}
+                  {review && !(smart && pr.next === "ready") && (
+                    <span className={review[1]}>{review[0]}</span>
+                  )}
                   {glyph && <span className={glyphCls}>{glyph}</span>}
                 </div>
               </div>

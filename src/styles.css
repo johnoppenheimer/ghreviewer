@@ -455,6 +455,11 @@ a:hover {
 .pr-row.can-wait {
   opacity: 0.6;
 }
+/* Smart inbox state, first on the meta line so it's never the part cut off. `feedback` is 8ch. */
+.pr-row .state {
+  flex: none;
+  width: 8ch;
+}
 .pr-row .line {
   display: flex;
   gap: 8px;
