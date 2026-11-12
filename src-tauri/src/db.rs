@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS runs (
   json TEXT NOT NULL,
   PRIMARY KEY (pr_id, prompt)
 );
-CREATE TABLE IF NOT EXISTS jira (key TEXT PRIMARY KEY, json TEXT NOT NULL);";
+CREATE TABLE IF NOT EXISTS jira (key TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS snoozes (id TEXT PRIMARY KEY, until_ms INTEGER NOT NULL);";
 
 impl Db {
     pub fn open(path: &Path) -> Result<Self> {
@@ -79,12 +80,20 @@ impl Db {
         Ok(())
     }
 
-    /// Inbox with unread computed, newest first. PRs the local filters drop are kept as `context`.
+    /// Inbox with unread and snoozes computed, newest first. PRs the local filters drop are kept as
+    /// `context`.
+    // shortcut: a snooze ends at the first inbox read after it expires (each sync), not on the minute.
     pub fn inbox(&self, filters: &Filters) -> Result<Vec<PrSummary>> {
         let conn = self.conn();
         let mut stmt = conn.prepare("SELECT id, seen_activity_at, forced_unread FROM pr_views")?;
         let views: HashMap<String, (Option<String>, bool)> = stmt
             .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut stmt = conn.prepare("SELECT id, until_ms FROM snoozes WHERE until_ms > ?1")?;
+        let snoozes: HashMap<String, u64> = stmt
+            .query_map([crate::now_ms() as i64], |r| {
+                Ok((r.get(0)?, r.get::<_, i64>(1)? as u64))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let mut stmt = conn.prepare("SELECT json FROM prs")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
@@ -98,6 +107,7 @@ impl Db {
                 seen.as_deref(),
                 forced,
             );
+            pr.snoozed_until = snoozes.get(&pr.id).copied();
             prs.push(pr);
         }
         prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -144,6 +154,19 @@ impl Db {
              ON CONFLICT(id) DO UPDATE SET seen_activity_at = excluded.seen_activity_at, forced_unread = 0"
         };
         self.conn().execute(sql, [id])?;
+        Ok(())
+    }
+
+    /// Snoozes a PR until `until_ms`, or wakes it with `None`.
+    pub fn snooze(&self, id: &str, until_ms: Option<u64>) -> Result<()> {
+        let conn = self.conn();
+        match until_ms {
+            Some(until) => conn.execute(
+                "INSERT OR REPLACE INTO snoozes (id, until_ms) VALUES (?1, ?2)",
+                params![id, until as i64],
+            )?,
+            None => conn.execute("DELETE FROM snoozes WHERE id = ?1", [id])?,
+        };
         Ok(())
     }
 
@@ -324,6 +347,7 @@ mod tests {
             context: false,
             jira: vec![],
             next: None,
+            snoozed_until: None,
         }
     }
 
@@ -401,6 +425,18 @@ mod tests {
         db.replace_prs(&[pr("a", "bob", "o/r", false, Some(t2), t2)])
             .unwrap();
         assert!(db.inbox(&filters).unwrap()[0].unread);
+
+        // Snoozes count until they expire, and survive syncs.
+        let until = crate::now_ms() + 60_000;
+        db.snooze("a", Some(until)).unwrap();
+        db.replace_prs(&[pr("a", "bob", "o/r", false, Some(t2), t2)])
+            .unwrap();
+        assert_eq!(db.inbox(&filters).unwrap()[0].snoozed_until, Some(until));
+        db.snooze("a", Some(crate::now_ms() - 1)).unwrap();
+        assert_eq!(db.inbox(&filters).unwrap()[0].snoozed_until, None);
+        db.snooze("a", Some(until)).unwrap();
+        db.snooze("a", None).unwrap();
+        assert_eq!(db.inbox(&filters).unwrap()[0].snoozed_until, None);
 
         let only = |p: &str| Filters {
             include_repos: vec![p.into()],

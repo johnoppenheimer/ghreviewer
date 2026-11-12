@@ -258,7 +258,15 @@ export function Inbox(
                 </div>
                 <div className="line">
                   <span className="dot" />
-                  {smart && pr.next && !dim && (
+                  {smart && pr.snoozedUntil && !dim && (
+                    <span
+                      className="state dim"
+                      title={`Snoozed until ${new Date(pr.snoozedUntil).toLocaleString()}`}
+                    >
+                      snoozed
+                    </span>
+                  )}
+                  {smart && pr.next && !pr.snoozedUntil && !dim && (
                     <span className={`state ${NEXT_CLASS[pr.next]}`}>{pr.next}</span>
                   )}
                   <span className="grow">

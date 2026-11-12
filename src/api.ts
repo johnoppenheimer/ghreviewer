@@ -27,6 +27,8 @@ export type PrSummary = {
   jira: TicketRef[];
   /** Who the PR waits on, for the smart inbox (`Next` in src-tauri/src/sync.rs). */
   next: Next | null;
+  /** Snoozed until then (ms): goes under the smart inbox's "can wait" line. */
+  snoozedUntil: number | null;
 };
 
 export type Next =
@@ -254,6 +256,8 @@ export const api = {
   tickets: (keys: string[]) => invoke<Ticket[]>("get_tickets", { keys }),
   pr: (id: string) => invoke<PrDetail>("get_pr", { id }),
   setUnread: (id: string, unread: boolean) => invoke<void>("set_unread", { id, unread }),
+  /** Snoozes a PR for `days`, or wakes it with null. */
+  snooze: (id: string, days: number | null) => invoke<void>("snooze", { id, days }),
   refresh: () => invoke<void>("refresh"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   setRepoFlag: (repo: string, flag: "pinned" | "hidden", on: boolean) =>

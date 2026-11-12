@@ -63,6 +63,7 @@ On first launch the app writes a commented starter config to `~/.config/ghreview
   - **Others' PRs.** `back`: you reviewed it and were asked again. `updated`: commits landed since your review. `new`: you haven't reviewed it yet. Drafts are `waiting`.
   - **Your PRs.** `feedback`: someone (not a review bot) reviewed it after your last commit. `failing`: checks fail. `ready`: approved, so you can merge it.
   - **Can wait.** Stacks where every PR is `waiting` (on others) or `done` (you approved it and nothing changed since) go under a dimmed "can wait" line. A stack ranks by its most urgent PR.
+  - **Snooze.** `z` (or `snooze` in the `:` palette) puts a PR under "can wait" for 1 day, 3 days or 1 week, whatever its state. `unsnooze` wakes it early.
   - A plain `review-requested:@me` rule drops a PR once you've reviewed it. To see `updated` PRs, add a rule like `is:open reviewed-by:@me`.
 - **Approving.** On the PR tab, `a` (or `approve` after the reviewers, or `approve PR` in the `:` palette) asks for an optional message, then `⌘↵` approves the PR on GitHub. It's offered on other people's open PRs until you've approved their latest commit.
 - **Wide windows.** In a window wider than a full-size 14" MacBook Pro screen, the PR tab splits: description on the left, conversation on the right.
@@ -80,6 +81,7 @@ Press `?` in the app for this list, and `:` for the command palette (every actio
 | `/`, `Esc`          | filter the focused list, clear it                                                  |
 | `o`                 | open the PR in the browser                                                         |
 | `u`                 | toggle unread                                                                      |
+| `z`                 | snooze the PR under "can wait", or wake it (smart inbox)                           |
 | `a`                 | approve the PR, with an optional message (PR tab)                                  |
 | `t`                 | show all rules in the inbox, then only each rule in turn                           |
 | `Cmd-R`             | sync now                                                                           |

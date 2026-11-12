@@ -48,6 +48,7 @@ test("keymap decodes vim keys and gg", () => {
   expect(km(key("r"))).toBe("runPrompt");
   expect(km(key("}"))).toBe("nextFile");
   expect(km(key("a"))).toBe("approve");
+  expect(km(key("z"))).toBe("snooze");
   expect(km(key("c", { metaKey: true }))).toBeNull();
 });
 
@@ -87,6 +88,7 @@ const pr = (repo: string, unread = false): PrSummary => ({
   context: false,
   jira: [],
   next: null,
+  snoozedUntil: null,
 });
 
 test("smart inbox ranks by state, stacks by their most urgent PR", () => {
@@ -104,6 +106,18 @@ test("smart inbox ranks by state, stacks by their most urgent PR", () => {
   ];
   expect(byNext(inbox).map((p) => p.repo)).toEqual(["a/3", "a/2", "a/5", "a/1", "a/6", "a/4"]);
   expect(canWait(inbox[0]) && canWait(inbox[5]) && !canWait(inbox[3])).toBe(true);
+  // A snoozed PR can wait, whatever its state, and comes after the ones that are done.
+  const snoozed = { ...at("a/7", "back"), snoozedUntil: 1 };
+  expect(canWait(snoozed)).toBe(true);
+  expect(byNext([snoozed, ...inbox]).map((p) => p.repo)).toEqual([
+    "a/3",
+    "a/2",
+    "a/5",
+    "a/1",
+    "a/6",
+    "a/7",
+    "a/4",
+  ]);
 
   // A waiting root with a `back` child ranks as `back`; its greyed parent doesn't count.
   const stacked = (p: PrSummary, head: string, base: string, context = false) => ({

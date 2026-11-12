@@ -48,6 +48,9 @@ pub struct PrSummary {
     /// Who the PR waits on, for the smart inbox.
     #[serde(default)]
     pub next: Option<Next>,
+    /// Snoozed by the user until then (ms), for the smart inbox. Filled when the inbox is read.
+    #[serde(default)]
+    pub snoozed_until: Option<u64>,
 }
 
 /// Smart inbox state; `NEXT_ORDER` in src/model.ts ranks them.
@@ -422,6 +425,7 @@ fn summarize(pr: SearchPr, viewer: &str) -> PrSummary {
         context: false,
         jira: vec![],
         next,
+        snoozed_until: None,
     }
 }
 

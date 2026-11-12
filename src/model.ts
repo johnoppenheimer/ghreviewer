@@ -51,9 +51,19 @@ export const NEXT_CLASS: Record<Next, string> = {
 };
 
 /** Nothing to do on it for now: below the smart inbox's "can wait" line, dimmed. */
-export const canWait = (pr: PrSummary) => pr.next === "waiting" || pr.next === "done";
+export const canWait = (pr: PrSummary) =>
+  pr.next === "waiting" || pr.next === "done" || !!pr.snoozedUntil;
 
-const rank = (p: PrSummary) => (p.next ? NEXT_ORDER.indexOf(p.next) : NEXT_ORDER.length);
+/** Snooze lengths offered: days and label. */
+export const SNOOZES: [number, string][] = [
+  [1, "1 day"],
+  [3, "3 days"],
+  [7, "1 week"],
+];
+
+// Snoozed PRs come last among those that can wait.
+const rank = (p: PrSummary) =>
+  p.snoozedUntil ? NEXT_ORDER.length : p.next ? NEXT_ORDER.indexOf(p.next) : NEXT_ORDER.length + 1;
 
 /** Most urgent first, newest first within a rank (the sort is stable). */
 export const byNext = (prs: PrSummary[]): PrSummary[] => [...prs].sort((a, b) => rank(a) - rank(b));

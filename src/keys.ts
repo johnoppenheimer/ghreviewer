@@ -30,6 +30,7 @@ export type Action =
   | "continueRun"
   | "fix"
   | "approve"
+  | "snooze"
   | "collapse";
 
 type Key = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
@@ -66,6 +67,7 @@ const SINGLE: Record<string, Action> = {
   c: "continueRun",
   f: "fix",
   a: "approve",
+  z: "snooze",
   " ": "collapse",
 };
 
@@ -98,6 +100,7 @@ export const HELP: [string, string][] = [
   ["o", "open PR in browser"],
   ["Cmd-r", "refresh now"],
   ["u", "toggle unread"],
+  ["z", "snooze the PR under “can wait”, or wake it (smart inbox)"],
   ["a", "approve the PR, with an optional message (PR tab)"],
   ["t", "inbox: next rule (all, then each rule)"],
   ["w", "open PR worktree (first open_with), or create it (worktrunk)"],

@@ -292,6 +292,15 @@ fn set_unread(app: AppHandle, st: State<'_, Arc<AppState>>, id: String, unread: 
     Ok(())
 }
 
+/// Snoozes a PR for `days`, or wakes it with `None`.
+#[tauri::command]
+fn snooze(app: AppHandle, st: State<'_, Arc<AppState>>, id: String, days: Option<u64>) -> Res<()> {
+    let until = days.map(|d| now_ms() + d * 86_400_000);
+    st.db.snooze(&id, until).map_err(err)?;
+    changed(&app);
+    Ok(())
+}
+
 #[tauri::command]
 fn refresh(st: State<'_, Arc<AppState>>) {
     st.force_repos.store(true, Ordering::Relaxed);
@@ -900,6 +909,7 @@ pub fn run() {
             get_tickets,
             get_pr,
             set_unread,
+            snooze,
             refresh,
             save_settings,
             set_repo_flag,

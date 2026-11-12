@@ -23,6 +23,7 @@ import {
   pickedByDefault,
   relTime,
   runItems,
+  SNOOZES,
   shouldMarkRead,
   sidebarItems,
   stackRows,
@@ -561,6 +562,10 @@ export default function App() {
       case "palette":
         setPaletteQuery("");
         return setOverlay("palette");
+      case "snooze":
+        if (!config?.smart_inbox || !selected) return;
+        setPaletteQuery("snooze");
+        return setOverlay("palette");
       case "worktreeMenu":
         if (!wt?.path) return;
         setPaletteQuery("open worktree in ");
@@ -642,6 +647,17 @@ export default function App() {
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "open PR in browser", run: openSelected },
     { label: "toggle unread", run: toggleUnread },
+    ...(config?.smart_inbox && selected
+      ? [
+          ...SNOOZES.map(([days, label]) => ({
+            label: `snooze ${label}`,
+            run: () => fire(api.snooze(selected.id, days)),
+          })),
+          ...(selected.snoozedUntil
+            ? [{ label: "unsnooze", run: () => fire(api.snooze(selected.id, null)) }]
+            : []),
+        ]
+      : []),
     ...(approvable ? [{ label: "approve PR", run: openApprove }] : []),
     ...(wt?.path
       ? openers.map((o, i) => ({ label: `open worktree in ${o.name}`, run: () => openWorktree(i) }))
