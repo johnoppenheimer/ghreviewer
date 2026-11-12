@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    # The app is macOS arm64 only; Tauri needs no extra system deps there.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rust (+clippy, rustfmt) and bun at the versions pinned in mise.toml.
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: mise run install
+      # fmt rewrites files: fail if it changed anything.
+      - name: fmt
+        run: mise run fmt && git diff --exit-code
+      - run: mise run lint
+      - run: mise run test
+      - run: mise run build
