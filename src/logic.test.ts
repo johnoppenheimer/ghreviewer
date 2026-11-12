@@ -12,6 +12,7 @@ import {
   shouldMarkRead,
   sidebarItems,
   stackRows,
+  tailPatch,
   step,
   titleParts,
 } from "./model";
@@ -264,4 +265,14 @@ test("botReviews turns open bot threads into findings", () => {
   expect(r.findings[1]).toMatchObject({ severity: "P1 outdated", line: 2 });
   expect(pickedByDefault(r.findings[1])).toBe(true);
   expect(pickedByDefault({ ...r.findings[0], severity: "P2 outdated" })).toBe(false);
+});
+
+test("tailPatch keeps the end of a hunk with its line numbers", () => {
+  const hunk = "@@ -10,4 +10,5 @@ fn main() {\n a\n-b\n+c\n+d\n e";
+  expect(tailPatch("x.rs", hunk, 3)).toBe(
+    "--- a/x.rs\n+++ b/x.rs\n@@ -12,1 +11,3 @@ fn main() {\n+c\n+d\n e\n",
+  );
+  expect(tailPatch("x.rs", hunk, 8)).toBe(
+    "--- a/x.rs\n+++ b/x.rs\n@@ -10,3 +10,4 @@ fn main() {\n a\n-b\n+c\n+d\n e\n",
+  );
 });

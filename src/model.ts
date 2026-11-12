@@ -306,3 +306,23 @@ export function botReviews(pr: PrDetail): BotReview[] {
 
 /** Findings ticked until you change it: all but nits and Greptile's lowest priority. */
 export const pickedByDefault = (f: Finding) => !["nit", "P2"].includes(f.severity.split(" ")[0]);
+
+/**
+ * A unified-diff patch of the last `n` lines of a review comment's hunk, for `PatchDiff`.
+ * GitHub's diffHunk ends at the commented line, so the tail is the useful context; the `@@`
+ * header is recomputed so line numbers stay right.
+ */
+export function tailPatch(path: string, hunk: string, n: number): string {
+  const [head, ...body] = hunk.replace(/\n$/, "").split("\n");
+  const m = head.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+  const files = `--- a/${path}\n+++ b/${path}\n`;
+  if (!m) return files + hunk;
+  const skip = body.slice(0, Math.max(0, body.length - n));
+  const keep = body.slice(skip.length);
+  const old = (l: string) => l[0] === " " || l[0] === "-" || l === "";
+  const neu = (l: string) => l[0] === " " || l[0] === "+" || l === "";
+  const count = (ls: string[], f: (l: string) => boolean) => ls.filter(f).length;
+  const oldStart = +m[1] + count(skip, old);
+  const newStart = +m[2] + count(skip, neu);
+  return `${files}@@ -${oldStart},${count(keep, old)} +${newStart},${count(keep, neu)} @@${m[3]}\n${keep.join("\n")}\n`;
+}

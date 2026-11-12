@@ -1,6 +1,9 @@
+import { PatchDiff } from "@pierre/diffs/react";
+import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import { type ReactNode, type RefObject, useMemo } from "react";
 import {
+  api,
   type Check,
   type PrDetail,
   type PrSummary,
@@ -8,7 +11,7 @@ import {
   type TimelineItem,
   list,
 } from "./api";
-import { REVIEW_LABEL, checkGlyph, ghImageSrc, relTime } from "./model";
+import { REVIEW_LABEL, checkGlyph, ghImageSrc, relTime, tailPatch } from "./model";
 
 // Global hook, so it also covers the run markdown: off-screen images aren't fetched or decoded,
 // and repo images load with the token (the webview has no GitHub session for private repos).
@@ -162,20 +165,22 @@ function Entry({ it, now }: { it: TimelineItem; now: number }) {
   );
 }
 
-function Hunk({ text }: { text: string }) {
-  // GitHub's diffHunk ends at the commented line; the tail is the useful context.
-  const lines = text.split("\n").slice(-8);
+function Hunk({ path, text }: { path: string; text: string }) {
+  const theme = useQuery({ queryKey: ["config"], queryFn: api.config }).data?.theme;
+  const patch = useMemo(() => tailPatch(path, text, 8), [path, text]);
   return (
-    <div className="hunk">
-      {lines.map((l, i) => (
-        <div
-          key={i}
-          className={l.startsWith("@@") ? "at" : l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}
-        >
-          {l}
-        </div>
-      ))}
-    </div>
+    <PatchDiff
+      className="hunk"
+      patch={patch}
+      options={{
+        diffStyle: "unified",
+        disableFileHeader: true,
+        hunkSeparators: "simple",
+        // shortcut: custom theme names get dark syntax colors; add a theme key if one needs light.
+        themeType: theme === "light" ? "light" : "dark",
+        unsafeCSS: "* { border-radius: 0 !important; }",
+      }}
+    />
   );
 }
 
@@ -196,7 +201,7 @@ function ThreadView({ t, now }: { t: Thread; now: number }) {
           · {comments.length} comment{comments.length === 1 ? "" : "s"}
         </span>
       </summary>
-      {comments[0] && <Hunk text={comments[0].diffHunk} />}
+      {comments[0] && <Hunk path={t.path} text={comments[0].diffHunk} />}
       {comments.map((c) => (
         <div key={c.id} className="item">
           <div className="item-head">

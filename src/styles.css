@@ -549,24 +549,14 @@ details[open] > summary::before {
   content: "▾ ";
 }
 
+/* @pierre/diffs renders in a shadow root; its CSS variables inherit through it. */
 .hunk {
   margin: 6px 0;
-  padding: 4px 0;
-  background: var(--bg_alt);
-  overflow-x: auto;
-}
-.hunk div {
-  padding: 0 8px;
-  white-space: pre;
-}
-.hunk .add {
-  color: var(--ok);
-}
-.hunk .del {
-  color: var(--fail);
-}
-.hunk .at {
-  color: var(--dim);
+  --diffs-font-family: var(--font);
+  --diffs-header-font-family: var(--font);
+  --diffs-font-size: var(--font_size);
+  --diffs-addition-color: var(--ok);
+  --diffs-deletion-color: var(--fail);
 }
 
 /* GitHub-rendered HTML */
