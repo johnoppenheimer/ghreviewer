@@ -11,9 +11,9 @@ pub const STARTER: &str = r##"# ghreviewer config. Edit by hand or from the app 
 poll_interval_secs = 300
 theme = "dark"
 
-# A "Next" view above All: PRs ranked by who they wait on (you re-requested, feedback on yours,
-# commits since your review, failing, new, ready to merge), the rest dimmed. To see PRs you
-# already reviewed, add a rule that keeps them, e.g. "is:open reviewed-by:@me".
+# Ranks the inbox by what needs you (re-requested, feedback on yours, commits since your review,
+# failing, new, ready to merge), with the rest under a "can wait" line. To see PRs you already
+# reviewed, add a rule that keeps them, e.g. "is:open reviewed-by:@me".
 smart_inbox = false
 
 # Local clones: direct children of these folders are matched to GitHub repos by their

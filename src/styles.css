@@ -435,7 +435,23 @@ a:hover {
 .pr-row.stack-parent {
   opacity: 0.45;
 }
-/* Next view: waiting on others, or done. */
+/* Smart inbox: where the stacks that wait on others (or are done) start. */
+.rank-line {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  padding: 10px 10px 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.9em;
+}
+.rank-line::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
 .pr-row.can-wait {
   opacity: 0.6;
 }

@@ -294,7 +294,7 @@ export function Settings({ config, onClose }: { config: Config; onClose: () => v
           <input
             type="checkbox"
             style={{ justifySelf: "start" }}
-            title='A "Next" view above All, ranked by what needs you'
+            title="Rank the inbox by what needs you; the rest goes under a “can wait” line"
             checked={smart}
             onChange={(e) => setSmart(e.target.checked)}
           />

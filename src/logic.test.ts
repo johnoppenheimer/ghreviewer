@@ -14,6 +14,7 @@ import {
   relTime,
   shouldMarkRead,
   sidebarItems,
+  stackLeads,
   stackRows,
   tailPatch,
   step,
@@ -88,7 +89,7 @@ const pr = (repo: string, unread = false): PrSummary => ({
   next: null,
 });
 
-test("Next view ranks by state, counts only what needs you", () => {
+test("smart inbox ranks by state, stacks by their most urgent PR", () => {
   const at = (repo: string, next: PrSummary["next"], unread = false) => ({
     ...pr(repo, unread),
     next,
@@ -102,22 +103,23 @@ test("Next view ranks by state, counts only what needs you", () => {
     at("a/6", "done"),
   ];
   expect(byNext(inbox).map((p) => p.repo)).toEqual(["a/3", "a/2", "a/5", "a/1", "a/6", "a/4"]);
-  const opts = {
-    repos: [],
-    inbox,
-    pinned: [],
-    hidden: [],
-    collapsed: new Set<string>(),
-    showHidden: false,
-    filter: "",
-  };
-  expect(sidebarItems(opts)[0].key).toBe("all");
-  expect(sidebarItems({ ...opts, smart: true })[0]).toMatchObject({
-    key: "next",
-    total: 4,
-    unread: 1,
-  });
   expect(canWait(inbox[0]) && canWait(inbox[5]) && !canWait(inbox[3])).toBe(true);
+
+  // A waiting root with a `back` child ranks as `back`; its greyed parent doesn't count.
+  const stacked = (p: PrSummary, head: string, base: string, context = false) => ({
+    ...p,
+    headRef: head,
+    baseRef: base,
+    context,
+  });
+  const parent = stacked(at("o/r", "new"), "p", "main", true);
+  const root = stacked(at("o/r", "waiting"), "a", "p");
+  const child = stacked(at("o/r", "back"), "b", "a");
+  const alone = stacked(at("o/r", "new"), "c", "main");
+  const done = stacked(at("o/r", "done"), "d", "main");
+  const rows = stackRows(byNext([done, root, alone, child, parent]), (p) => !p.context);
+  expect(rows.map((r) => r.pr)).toEqual([parent, root, child, alone, done]);
+  expect(stackLeads(rows)).toEqual([child, undefined, undefined, alone, done]);
 });
 
 test("sidebar orders orgs and repos, counts, hides, filters", () => {

@@ -2,7 +2,6 @@ import type { Finding, Next, PrDetail, PrSummary, Run, TicketRef } from "./api";
 
 export type SideItem =
   | { key: string; kind: "run"; run: Run }
-  | { key: "next"; kind: "next"; total: number; unread: number }
   | { key: "all"; kind: "all"; total: number; unread: number }
   | { key: string; kind: "org"; org: string; total: number; unread: number; collapsed: boolean }
   | {
@@ -51,19 +50,15 @@ export const NEXT_CLASS: Record<Next, string> = {
   done: "dim",
 };
 
-/** Nothing to do on it for now: dimmed in the Next view, not counted. */
+/** Nothing to do on it for now: below the smart inbox's "can wait" line, dimmed. */
 export const canWait = (pr: PrSummary) => pr.next === "waiting" || pr.next === "done";
 
-/** Most urgent first, newest first within a rank (the sort is stable). */
-export function byNext(prs: PrSummary[]): PrSummary[] {
-  const rank = (p: PrSummary) => (p.next ? NEXT_ORDER.indexOf(p.next) : NEXT_ORDER.length);
-  return [...prs].sort((a, b) => rank(a) - rank(b));
-}
+const rank = (p: PrSummary) => (p.next ? NEXT_ORDER.indexOf(p.next) : NEXT_ORDER.length);
 
-/**
- * Flat sidebar: Next (if `smart`), All, then orgs (with PRs first) and their repos (pinned, then
- * with PRs, then the rest).
- */
+/** Most urgent first, newest first within a rank (the sort is stable). */
+export const byNext = (prs: PrSummary[]): PrSummary[] => [...prs].sort((a, b) => rank(a) - rank(b));
+
+/** Flat sidebar: All, then orgs (with PRs first) and their repos (pinned, then with PRs, then the rest). */
 export function sidebarItems(opts: {
   repos: string[];
   inbox: PrSummary[];
@@ -74,7 +69,6 @@ export function sidebarItems(opts: {
   /** Hide repos with no PRs in the inbox (pinned repos stay). */
   onlyWithPrs?: boolean;
   filter: string;
-  smart?: boolean;
 }): SideItem[] {
   const { inbox, collapsed, showHidden, onlyWithPrs } = opts;
   const filter = opts.filter.toLowerCase();
@@ -100,18 +94,7 @@ export function sidebarItems(opts: {
     Number(hasB) - Number(has) || a.localeCompare(b, undefined, { sensitivity: "base" });
   const orgNames = [...orgs.keys()].sort((a, b) => rank(byOrg.has(a), a, byOrg.has(b), b));
 
-  const todo = inbox.filter((p) => !canWait(p));
   const items: SideItem[] = [
-    ...(opts.smart
-      ? [
-          {
-            key: "next" as const,
-            kind: "next" as const,
-            total: todo.length,
-            unread: todo.filter((p) => p.unread).length,
-          },
-        ]
-      : []),
     { key: "all", kind: "all", total: inbox.length, unread: inbox.filter((p) => p.unread).length },
   ];
   for (const org of orgNames) {
@@ -211,6 +194,21 @@ export function stackRows(all: PrSummary[], shown: (pr: PrSummary) => boolean): 
     if (rows.length - start === 1) rows[start].graph = null;
   }
   return rows;
+}
+
+/**
+ * The most urgent shown PR of each stack, at the stack's first row (`undefined` on the others).
+ * Stacks made from `byNext` order come in the order of their leads.
+ */
+export function stackLeads(rows: PrRow[]): (PrSummary | undefined)[] {
+  const leads: (PrSummary | undefined)[] = rows.map(() => undefined);
+  let start = 0;
+  rows.forEach((r, i) => {
+    if (!r.graph || r.graph.depth === 0) start = i;
+    const lead = leads[start];
+    if (!r.dim && (!lead || rank(r.pr) < rank(lead))) leads[start] = r.pr;
+  });
+  return leads;
 }
 
 export function matchesFilter(pr: PrSummary, filter: string): boolean {
