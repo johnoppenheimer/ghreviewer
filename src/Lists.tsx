@@ -215,7 +215,11 @@ export function Inbox(
           const review = pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] : null;
           return (
             <Fragment key={pr.id}>
-              {i === waitAt && <div className="rank-line">can wait · {waiting}</div>}
+              {i === waitAt && (
+                <div className="rank-line">
+                  {i === 0 && "nothing needs you · "}can wait · {waiting}
+                </div>
+              )}
               <div
                 className={`row pr-row ${sel ? "selected" : ""} ${unread ? "unread" : ""} ${dim ? "stack-parent" : ""} ${later ? "can-wait" : ""}`}
                 style={{ "--depth": graph?.depth ?? 0 } as CSSProperties}

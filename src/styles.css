@@ -452,8 +452,10 @@ a:hover {
   flex: 1;
   border-top: 1px solid var(--border);
 }
-.pr-row.can-wait {
-  opacity: 0.6;
+/* Muted by color, not opacity: stays readable, and unlike greyed stack parents. The unread dot keeps its color. */
+.pr-row.can-wait,
+.pr-row.can-wait :not(.dot) {
+  color: var(--dim);
 }
 /* Smart inbox state, first on the meta line so it's never the part cut off. `feedback` is 8ch. */
 .pr-row .state {
