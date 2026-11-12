@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { type ReactNode, type RefObject, Suspense, lazy, useMemo } from "react";
+import { type ReactNode, type RefObject, Suspense, lazy, useMemo, useState } from "react";
 import {
   api,
   type Check,
@@ -191,8 +191,10 @@ function Hunk({ path, text }: { path: string; text: string }) {
 function ThreadView({ t, now }: { t: Thread; now: number }) {
   const comments = list(t.comments);
   const line = t.line ?? t.originalLine;
+  // Highlighting a hunk blocks the paint, so collapsed threads only get one when opened.
+  const [open, setOpen] = useState(!t.isResolved && !t.isOutdated);
   return (
-    <details className="item" open={!t.isResolved && !t.isOutdated}>
+    <details className="item" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>
         <b>
           {t.path}
@@ -205,7 +207,7 @@ function ThreadView({ t, now }: { t: Thread; now: number }) {
           · {comments.length} comment{comments.length === 1 ? "" : "s"}
         </span>
       </summary>
-      {comments[0] && <Hunk path={t.path} text={comments[0].diffHunk} />}
+      {open && comments[0] && <Hunk path={t.path} text={comments[0].diffHunk} />}
       {comments.map((c) => (
         <div key={c.id} className="item">
           <div className="item-head">
