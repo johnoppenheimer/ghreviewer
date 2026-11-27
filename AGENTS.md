@@ -10,6 +10,7 @@ Local macOS app to triage GitHub PRs. Tauri 2 (Rust in `src-tauri/`: UI-free log
 
 ## Workflow
 
+- Conventional commits (`feat:`, `fix:`, `feat!:`, `chore:`…): release-please builds versions and the changelog from them. The PR title must follow it too (CI checks it, squash merge uses it). Never edit version numbers by hand.
 - One commit per feature. Stage only your own files: the user often has work in progress in the tree.
 - Tests: Rust unit tests, plus `bun test` (`src/logic.test.ts`) for pure frontend logic. No e2e. Put testable logic in `src/model.ts`, not in components.
 - Never spend agent tokens to test prompt runs. Insert fake rows into `runs` in `cache.db` with sqlite3, then delete them.
@@ -30,6 +31,7 @@ Local macOS app to triage GitHub PRs. Tauri 2 (Rust in `src-tauri/`: UI-free log
   - Repo images (`github.com/<repo>/blob|raw/...`) load through `ghimg://` (`lib.rs::gh_image`), fetched with the token. It serves images only.
   - Agent HTML goes through `runfile://` (`lib.rs::run_file`, same scope as the asset protocol) into `<iframe sandbox="allow-scripts">`.
   - `open_path` only opens files listed in that PR's runs.
+- **Auto-update.** `tauri-plugin-updater` reads `latest.json` from the latest GitHub release (`plugins.updater` in `tauri.conf.json`). `release.yml` builds it with the `TAURI_SIGNING_PRIVATE_KEY` secret (minisign key made by `bun tauri signer generate`, local copy `~/.tauri/ghreviewer.key`; lose it and nobody can update). `mise run build` re-packs and re-signs `ghreviewer.app.tar.gz` after `codesign`, since `tauri build` packs it too early. Updating relaunches the app, so runs end `interrupted`.
 - **Agent runs** stop when the app quits. Killing the `opencode run` client aborts the turn, even with opencode's background service. At startup they're marked `interrupted`.
 
 ## Testing the UI by hand

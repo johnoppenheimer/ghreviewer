@@ -687,6 +687,10 @@ details[open] > summary::before {
   text-overflow: ellipsis;
   color: var(--fail);
 }
+.status-update {
+  position: relative;
+  color: var(--ok);
+}
 .error-text {
   user-select: text;
   cursor: text;

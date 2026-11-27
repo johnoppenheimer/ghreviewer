@@ -19,10 +19,15 @@ description = "Build the macOS app bundle, with the ghr command inside"
 # tauri build makes ghr too (a workspace member); the app installs it into PATH from its palette.
 run = '''
 set -e
+# Updater key: CI passes it in the env, locally it comes from the file `bun tauri signer generate` made.
+export TAURI_SIGNING_PRIVATE_KEY="${TAURI_SIGNING_PRIVATE_KEY:-$(cat ~/.tauri/ghreviewer.key)}"
 bun tauri build
-app=src-tauri/target/release/bundle/macos/ghreviewer.app
-cp src-tauri/target/release/ghr "$app/Contents/MacOS/ghr"
-codesign --force --deep --sign - "$app"
+macos=src-tauri/target/release/bundle/macos
+cp src-tauri/target/release/ghr "$macos/ghreviewer.app/Contents/MacOS/ghr"
+codesign --force --deep --sign - "$macos/ghreviewer.app"
+# tauri build packed the app before ghr and codesign touched it: redo the updater archive.
+COPYFILE_DISABLE=1 tar -czf "$macos/ghreviewer.app.tar.gz" -C "$macos" ghreviewer.app
+bun tauri signer sign "$macos/ghreviewer.app.tar.gz"
 '''
 
 [tasks.dmg]

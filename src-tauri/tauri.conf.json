@@ -48,6 +48,7 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -55,5 +56,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEREM0I5RDBFNEUzRTA1QjAKUldTd0JUNU9EcDA3M1F1eW8zWUpsQ0hRczBESkhGUjlMbHNoZ2N1SE1NclRVUXdjNjNBall4THkK",
+      "endpoints": [
+        "https://github.com/johnoppenheimer/ghreviewer/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

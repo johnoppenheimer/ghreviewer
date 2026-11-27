@@ -26,7 +26,7 @@ The app finds these tools through your login shell's `PATH`. A login shell doesn
 
 ### From a .dmg
 
-Open the `.dmg` and drag `ghreviewer` onto Applications.
+Open the `.dmg` and drag `ghreviewer` onto Applications. After that the app updates itself: it checks the latest GitHub release at startup and shows `update to vX.Y.Z` in the status bar (or run **check for updates** from the command palette).
 
 The app is not signed with an Apple Developer ID, so macOS blocks it the first time. Either run this once:
 

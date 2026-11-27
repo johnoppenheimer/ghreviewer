@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { type Update, check } from "@tauri-apps/plugin-updater";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type PrDetail,
@@ -205,6 +207,21 @@ export default function App() {
   const keymap = useMemo(createKeymap, []);
 
   const fire = (p: Promise<unknown>) => p.catch((e) => setUiError(String(e)));
+  // A newer GitHub release, found by `check`; `installing` once the status bar button was clicked.
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [installing, setInstalling] = useState(false);
+  // `quiet`: the startup check stays silent when offline or in dev (no signed release to compare).
+  const checkUpdate = (quiet: boolean) =>
+    check()
+      .then(setUpdate)
+      .catch((e) => !quiet && setUiError(String(e)));
+  useEffect(() => void checkUpdate(true), []);
+  const installUpdate = () => {
+    if (!update || installing) return;
+    setInstalling(true);
+    // Runs in progress end as `interrupted` when the app restarts.
+    fire(update.downloadAndInstall().then(relaunch)).finally(() => setInstalling(false));
+  };
   const setFilter = (col: number, value: string) =>
     setFilters((f) => f.map((v, i) => (i === col ? value : v)));
 
@@ -647,6 +664,9 @@ export default function App() {
 
   const commands: Command[] = [
     { label: "refresh", run: () => fire(api.refresh()) },
+    update
+      ? { label: `update to v${update.version}`, run: installUpdate }
+      : { label: "check for updates", run: () => checkUpdate(false) },
     { label: "settings", run: () => setOverlay("settings") },
     { label: "open config file", run: () => fire(api.openConfig()) },
     { label: "install ghr command (terminal UI)", run: () => fire(api.installCli()) },
@@ -815,6 +835,11 @@ export default function App() {
             }}
           >
             {error}
+          </button>
+        )}
+        {update && (
+          <button className="head-btn status-update" onClick={installUpdate} disabled={installing}>
+            {installing ? "updating…" : `update to v${update.version}`}
           </button>
         )}
         <span className="grow">? help · : commands</span>
